@@ -176,8 +176,18 @@
     line: 'source <(kubectl completion bash)'
     create: true
     mode: '0644'
-  when: ansible_shell_type == 'bash'
+  when: ansible_os_family in ['Debian', 'Ubuntu']
   tags: [tools]
+
+- name: Create .kube directory for ansible user
+  ansible.builtin.file:
+    path: "/home/{{ ansible_user }}/.kube"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+  when: ansible_user != 'root'
+  tags: [kubeconfig]
 
 - name: Create kubeconfig for ansible user
   ansible.builtin.copy:
