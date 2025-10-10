@@ -52,7 +52,7 @@ k3s_disable_servicelb: true     # Disable if using MetalLB/other LB
 k3s_disable_metrics_server: false  # Keep enabled for HPA
 
 # Additional components to disable (list)
-k3s_disable_components: []
+k3s_disable_components:
   - traefik
   - servicelb
   # - metrics-server

@@ -1,176 +1,31 @@
-# Ansible Configuration for Home Lab Infrastructure
-# https://docs.ansible.com/ansible/latest/reference_appendices/config.html
+---
+# Pre-commit hooks for Home Lab Infrastructure
+# https://pre-commit.com/
 
-[defaults]
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: ['--unsafe']  # Allow custom YAML tags
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: mixed-line-ending
 
-# Inventory
-inventory = ./inventory/hosts
-host_key_checking = False
+  # Ansible-lint disabled due to module compatibility issues with Python 3.13
+  # - repo: https://github.com/ansible/ansible-lint
+  #   rev: v24.12.2
+  #   hooks:
+  #     - id: ansible-lint
+  #       files: \.(yaml|yml)$
+  #       exclude: ^(\.github|docs)/
 
-# Output
-stdout_callback = yaml
-bin_ansible_callbacks = True
-any_errors_fatal = False
-display_skipped_hosts = False
-display_ok_hosts = True
-
-# Performance
-forks = 10
-gathering = smart
-fact_caching = jsonfile
-fact_caching_connection = /tmp/ansible_facts
-fact_caching_timeout = 86400
-gather_subset = !hardware
-
-# Retry files (disabled for home lab)
-retry_files_enabled = False
-
-# Roles
-roles_path = ./roles:~/.ansible/roles:/usr/share/ansible/roles:/etc/ansible/roles
-collections_path = ./collections:~/.ansible/collections:/usr/share/ansible/collections
-
-# Logging
-log_path = ./ansible.log
-ansible_managed = Managed by Ansible - {file} modified on %Y-%m-%d %H:%M:%S by {uid} on {host}
-
-# Colors
-nocows = True
-nocolor = False
-
-# Timeouts
-timeout = 30
-command_warnings = True
-deprecation_warnings = True
-system_warnings = True
-
-# Python interpreter discovery
-interpreter_python = auto_silent
-
-# SSH
-remote_user = ansible
-private_key_file = ~/.ssh/id_ed25519
-remote_port = 22
-
-# Privilege escalation
-become = False
-become_method = sudo
-become_user = root
-become_ask_pass = False
-
-# Plugin paths
-action_plugins = ./plugins/action:~/.ansible/plugins/action:/usr/share/ansible/plugins/action
-callback_plugins = ./plugins/callback:~/.ansible/plugins/callback:/usr/share/ansible/plugins/callback
-connection_plugins = ./plugins/connection:~/.ansible/plugins/connection:/usr/share/ansible/plugins/connection
-filter_plugins = ./plugins/filter:~/.ansible/plugins/filter:/usr/share/ansible/plugins/filter
-lookup_plugins = ./plugins/lookup:~/.ansible/plugins/lookup:/usr/share/ansible/plugins/lookup
-strategy_plugins = ./plugins/strategy:~/.ansible/plugins/strategy:/usr/share/ansible/plugins/strategy
-vars_plugins = ./plugins/vars:~/.ansible/plugins/vars:/usr/share/ansible/plugins/vars
-
-# Module defaults
-module_defaults =
-  ansible.builtin.service:
-    enabled: yes
-    state: started
-  ansible.builtin.package:
-    state: present
-
-# Error handling
-error_on_undefined_vars = True
-show_custom_stats = True
-
-# Jinja2
-jinja2_extensions = jinja2.ext.do,jinja2.ext.i18n
-
-# Vault
-vault_password_file = .vault_password
-vault_identity_list = default@.vault_password
-
-[inventory]
-# Inventory plugins
-enable_plugins = host_list, script, auto, yaml, ini, toml
-cache = True
-cache_plugin = jsonfile
-cache_timeout = 86400
-cache_connection = /tmp/ansible_inventory
-
-[privilege_escalation]
-become = False
-become_method = sudo
-become_user = root
-become_ask_pass = False
-become_flags = 
-
-[paramiko_connection]
-record_host_keys = False
-pty = False
-look_for_keys = True
-host_key_auto_add = True
-
-[ssh_connection]
-ssh_args = -o ControlMaster=auto -o ControlPersist=60s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
-control_path_dir = ~/.ansible/cp
-control_path = %(directory)s/ansible-ssh-%%h-%%p-%%r
-pipelining = True
-scp_if_ssh = smart
-transfer_method = smart
-retries = 3
-
-[persistent_connection]
-connect_timeout = 30
-connect_retry_timeout = 15
-command_timeout = 30
-
-[accelerate]
-accelerate_port = 5099
-accelerate_timeout = 30
-accelerate_connect_timeout = 5.0
-accelerate_daemon_timeout = 30
-accelerate_multi_key = yes
-
-[selinux]
-special_context_filesystems = fuse,nfs,vboxsf,ramfs,9p,vfat
-
-[colors]
-highlight = white
-verbose = blue
-warn = bright purple
-error = red
-debug = dark gray
-deprecate = purple
-skip = cyan
-unreachable = red
-ok = green
-changed = yellow
-diff_add = green
-diff_remove = red
-diff_lines = cyan
-
-[diff]
-always = False
-context = 3
-
-# Home Lab Specific Settings
-[defaults]
-# Allow duplicate host names in inventory (useful for testing)
-# host_pattern_mismatch = warning
-
-# Optimized for local network
-timeout = 10
-
-# Less aggressive retry
-retries = 2
-
-# Display timing information
-callback_whitelist = profile_tasks, timer
-
-# Better error handling for home lab
-max_fail_percentage = 0
-
-# Collections
-collections_paths = ./collections:~/.ansible/collections
-
-# Strategy
-strategy = linear
-
-# Action plugins
-action_warnings = True
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        args: ['-d', 'relaxed']
