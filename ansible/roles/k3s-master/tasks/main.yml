@@ -211,3 +211,9 @@
   environment:
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   tags: [taints]
+
+# Post-installation tasks (CNI and MetalLB)
+- name: Include post-installation tasks
+  ansible.builtin.include_tasks: post-install.yml
+  when: k3s_is_first_master | default(false)
+  tags: [post-install, cni, metallb]

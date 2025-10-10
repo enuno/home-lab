@@ -239,15 +239,21 @@ k3s_service_cidr: "10.43.0.0/16"  # Service network
 
 #### CNI Options
 
-**Flannel (Default)**
+**Calico (Default in this configuration)**
+```yaml
+k3s_flannel_backend: "none"  # Disable Flannel
+# Calico is automatically installed via post-install tasks
+```
+
+**Flannel (Alternative)**
 ```yaml
 k3s_flannel_backend: "vxlan"  # Options: vxlan, host-gw, wireguard-native
 ```
 
-**Custom CNI (Calico, Cilium)**
+**Other CNI (Cilium, Weave)**
 ```yaml
 k3s_flannel_backend: "none"
-# Deploy custom CNI after cluster creation
+# Deploy custom CNI manually after cluster creation
 ```
 
 ### Disable Built-in Components
@@ -255,10 +261,23 @@ k3s_flannel_backend: "none"
 Replace with custom components:
 
 ```yaml
-k3s_disable_traefik: true        # Use Nginx Ingress
-k3s_disable_servicelb: true      # Use MetalLB
+k3s_disable_traefik: true        # Use Nginx Ingress or other
+k3s_disable_servicelb: true      # Use MetalLB (auto-installed)
 k3s_disable_metrics_server: false  # Keep for HPA
 ```
+
+### MetalLB Configuration
+
+MetalLB is automatically installed and configured when `k3s_install_metallb: true`:
+
+```yaml
+k3s_install_metallb: true
+k3s_metallb_version: "v0.14.9"
+k3s_metallb_ip_pool: "10.41.0.0/16"      # IP pool for LoadBalancer services
+k3s_metallb_pool_name: "default"
+```
+
+After installation, LoadBalancer services will automatically receive IPs from this pool.
 
 ### External Database (Alternative to Embedded etcd)
 

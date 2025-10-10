@@ -15,7 +15,7 @@ k3s_version: "v1.34.0+k3s1"  # Use latest stable: https://github.com/k3s-io/k3s/
 # The endpoint for the Kubernetes API server
 # For HA: Use a load balancer VIP or DNS name
 # For single master: Use the master node IP
-k3s_api_endpoint: "192.168.1.10"  # Change to your master IP or LB VIP
+k3s_api_endpoint: "10.2.0.104"  # Change to your master IP or LB VIP
 
 # ============================================
 # Cluster Token
@@ -41,7 +41,8 @@ k3s_cluster_dns: "10.43.0.10"
 k3s_enable_ipv6: false
 
 # Flannel backend options: vxlan, host-gw, wireguard-native, none
-k3s_flannel_backend: "vxlan"
+# Set to 'none' to use alternative CNI (Calico, Cilium, etc.)
+k3s_flannel_backend: "none"
 
 # ============================================
 # Embedded Components
@@ -185,3 +186,12 @@ k3s_kubeconfig_dir: "{{ playbook_dir }}/../kubeconfig"
 # k3s_taint_masters: false
 # k3s_kubelet_args:
 #   - "max-pods=50"  # Lower for resource-constrained dev nodes
+
+# ============================================
+# MetalLB Configuration
+# ============================================
+# Install and configure MetalLB for bare-metal load balancing
+k3s_install_metallb: true
+k3s_metallb_version: "v0.14.9"
+k3s_metallb_ip_pool: "10.41.0.0/16"
+k3s_metallb_pool_name: "default"

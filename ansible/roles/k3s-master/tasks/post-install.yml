@@ -1,0 +1,116 @@
+---
+# Post-installation tasks for K3s master nodes
+# Install MetalLB and CNI plugins after cluster is ready
+
+- name: Wait for K3s to be fully ready
+  ansible.builtin.wait_for:
+    path: /etc/rancher/k3s/k3s.yaml
+    timeout: 300
+  tags: [post-install]
+
+- name: Install Calico CNI (since Flannel is disabled)
+  when: k3s_flannel_backend == 'none'
+  tags: [cni, calico]
+  block:
+    - name: Download Calico manifest
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/projectcalico/calico/v3.29.1/manifests/calico.yaml
+        dest: /tmp/calico.yaml
+        mode: '0644'
+
+    - name: Apply Calico CNI
+      ansible.builtin.command: kubectl apply -f /tmp/calico.yaml
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: calico_result
+      changed_when: "'created' in calico_result.stdout or 'configured' in calico_result.stdout"
+
+    - name: Wait for Calico pods to be ready
+      ansible.builtin.command: kubectl wait --for=condition=ready pod -l k8s-app=calico-node -n kube-system --timeout=300s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      changed_when: false
+      retries: 3
+      delay: 10
+
+- name: Install MetalLB
+  when: k3s_install_metallb | default(false)
+  tags: [metallb, loadbalancer]
+  block:
+    - name: Create MetalLB namespace
+      ansible.builtin.command: kubectl create namespace metallb-system --dry-run=client -o yaml
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: metallb_ns_check
+      changed_when: false
+
+    - name: Apply MetalLB namespace
+      ansible.builtin.command: kubectl apply -f -
+      args:
+        stdin: "{{ metallb_ns_check.stdout }}"
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      changed_when: true
+
+    - name: Install MetalLB using manifests
+      ansible.builtin.command: >
+        kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/{{ k3s_metallb_version }}/config/manifests/metallb-native.yaml
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: metallb_install
+      changed_when: "'created' in metallb_install.stdout or 'configured' in metallb_install.stdout"
+
+    - name: Wait for MetalLB controller to be ready
+      ansible.builtin.command: kubectl wait --for=condition=ready pod -l app=metallb -n metallb-system --timeout=300s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      changed_when: false
+      retries: 3
+      delay: 10
+
+    - name: Create MetalLB IPAddressPool configuration
+      ansible.builtin.copy:
+        content: |
+          ---
+          apiVersion: metallb.io/v1beta1
+          kind: IPAddressPool
+          metadata:
+            name: {{ k3s_metallb_pool_name }}
+            namespace: metallb-system
+          spec:
+            addresses:
+              - {{ k3s_metallb_ip_pool }}
+          ---
+          apiVersion: metallb.io/v1beta1
+          kind: L2Advertisement
+          metadata:
+            name: {{ k3s_metallb_pool_name }}-l2
+            namespace: metallb-system
+          spec:
+            ipAddressPools:
+              - {{ k3s_metallb_pool_name }}
+        dest: /tmp/metallb-config.yaml
+        mode: '0644'
+
+    - name: Apply MetalLB configuration
+      ansible.builtin.command: kubectl apply -f /tmp/metallb-config.yaml
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: metallb_config
+      changed_when: "'created' in metallb_config.stdout or 'configured' in metallb_config.stdout"
+
+    - name: Verify MetalLB configuration
+      ansible.builtin.command: kubectl get ipaddresspool -n metallb-system
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: metallb_pools
+      changed_when: false
+
+    - name: Display MetalLB configuration
+      ansible.builtin.debug:
+        msg: |
+          MetalLB installed successfully!
+          IP Address Pool: {{ k3s_metallb_ip_pool }}
+          Pool Name: {{ k3s_metallb_pool_name }}
+
+          {{ metallb_pools.stdout }}

@@ -9,7 +9,11 @@ server: "https://{{ hostvars[groups['k3s_masters'][0]]['ansible_default_ipv4']['
 {% endif %}
 
 # Token for cluster authentication
-token: "{{ k3s_token | default(hostvars[groups['k3s_masters'][0]]['k3s_node_token']) }}"
+{% if k3s_is_first_master | default(false) %}
+token: "{{ k3s_token }}"
+{% else %}
+token: "{{ hostvars[groups['k3s_masters'][0]].get('k3s_node_token', k3s_cluster_token | default('')) }}"
+{% endif %}
 
 # Networking
 {% if k3s_cluster_cidr is defined %}
@@ -24,7 +28,9 @@ cluster-dns: "{{ k3s_cluster_dns }}"
 
 # TLS SANs for API server certificate
 tls-san:
+{% if k3s_api_endpoint is defined %}
   - "{{ k3s_api_endpoint }}"
+{% endif %}
   - "{{ ansible_default_ipv4.address }}"
   - "{{ ansible_hostname }}"
   - "{{ ansible_fqdn }}"
