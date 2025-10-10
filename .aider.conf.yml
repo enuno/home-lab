@@ -1,0 +1,322 @@
+# Aider AI Configuration for Home Lab Infrastructure Development
+# https://aider.chat/docs/config/aider_conf.html
+
+##############
+# Main Model:
+##############
+
+# Primary model for code generation
+model: claude-sonnet-4-20250514
+
+# Weak model for simple tasks (faster, cheaper)
+weak-model: claude-sonnet-4-20250514
+
+# Editor model for refactoring
+editor-model: claude-sonnet-4-20250514
+
+##############
+# Model Settings:
+##############
+
+# Enable prompt caching for cost savings
+cache-prompts: true
+
+# Keep cache alive with periodic pings
+cache-keepalive-pings: 10
+
+# Verify SSL certificates
+verify-ssl: true
+
+# Maximum tokens for chat history
+max-chat-history-tokens: 8000
+
+# Show model warnings
+show-model-warnings: true
+
+##############
+# Repository Map:
+##############
+
+# Tokens for repository map
+map-tokens: 2048
+
+# Refresh map on changes
+map-refresh: auto
+
+# Multiplier when no files in chat
+map-multiplier-no-files: 2
+
+##############
+# Files:
+##############
+
+# Read-only files for context (update per project)
+read:
+  - README.md
+  - ARCHITECTURE.md
+  - CONTRIBUTING.md
+
+##############
+# Git Settings:
+##############
+
+# Automatically commit changes
+auto-commits: true
+
+# Allow commits on dirty repo (home lab permissive)
+dirty-commits: true
+
+# Subtree only (don't commit outside project)
+subtree-only: true
+
+# Respect .gitignore
+gitignore: true
+
+# Automatically add .aider* to .gitignore
+aider-ignore-file: true
+
+##############
+# Output Settings:
+##############
+
+# Enable pretty output
+pretty: true
+
+# Stream responses
+stream: true
+
+# Color scheme (monokai for dark terminals)
+code-theme: monokai
+dark-mode: true
+
+# User input color
+user-input-color: "#00d7ff"
+
+# Tool output colors
+tool-output-color: "#00ff00"
+tool-error-color: "#ff0000"
+tool-warning-color: "#ffff00"
+
+# Assistant output color
+assistant-output-color: "#ffffff"
+
+# Completion menu colors
+completion-menu-color: "#00d7ff"
+completion-menu-bg-color: "#1c1c1c"
+completion-menu-current-color: "#ffffff"
+
+##############
+# Behavior:
+##############
+
+# Enable fancy input with history
+fancy-input: true
+
+# Enable multiline input (Meta-Enter to submit)
+multiline: true
+
+# Enable voice input (if available)
+voice-language: en
+
+# Suggest shell commands
+suggest-shell-commands: true
+
+# Check for updates
+check-update: true
+
+# Enable notifications
+notifications: true
+
+# Encoding
+encoding: utf-8
+
+# Line endings (auto-detect platform)
+line-endings: platform
+
+##############
+# Lint/Test:
+##############
+
+# Enable automatic linting
+lint: true
+
+# Lint command by file type (override as needed)
+lint-cmd:
+  "*.py": "ruff check {file_name}"
+  "*.tf": "terraform fmt -check {file_name}"
+  "*.yml": "yamllint {file_name}"
+  "*.yaml": "yamllint {file_name}"
+  "*.sh": "shellcheck {file_name}"
+
+# Auto-lint after changes
+auto-lint: true
+
+# Enable testing
+test: false
+
+##############
+# Environment:
+##############
+
+# Load environment from .env file
+env-file: .env
+
+# Set environment variables
+set-env:
+  - ANSIBLE_HOST_KEY_CHECKING=False
+  - ANSIBLE_RETRY_FILES_ENABLED=False
+  - TF_IN_AUTOMATION=true
+  - TF_INPUT=false
+  - KUBERNETES_SERVICE_HOST=""
+  - KUBERNETES_SERVICE_PORT=""
+
+##############
+# API Keys:
+##############
+
+# API keys should be set via environment variables:
+# ANTHROPIC_API_KEY=your-key-here
+# OPENAI_API_KEY=your-key-here (if using OpenAI)
+# AWS_REGION=us-east-1 (for Bedrock)
+
+# Optionally set via .env file (recommended)
+# See: https://aider.chat/docs/config/dotenv.html
+
+##############
+# Edit Format:
+##############
+
+# Auto-select best edit format for model
+# Options: whole, diff, udiff, diff-fenced, whole-fenced
+edit-format: auto
+
+##############
+# Chat Modes:
+##############
+
+# Default chat mode: code, ask, architect, help
+# - code: Make code changes (default)
+# - ask: Ask questions without making changes
+# - architect: High-level planning without implementation
+chat-mode: code
+
+# Architect mode auto-accept (skip confirmation)
+auto-accept-architect: false
+
+##############
+# Message Handling:
+##############
+
+# Save chat history
+chat-history-file: .aider.chat.history.md
+
+# Restore chat history on start
+restore-chat-history: true
+
+# Save input history
+input-history-file: .aider.input.history
+
+# Save LLM history for debugging
+llm-history-file: .aider.llm.history
+
+##############
+# Watch Files:
+##############
+
+# Watch files for external changes
+watch-files: true
+
+##############
+# Reporting:
+##############
+
+# Enable analytics (opt-in, anonymous)
+analytics-disable: true
+
+##############
+# Advanced:
+##############
+
+# Show release notes on new version
+show-release-notes: false
+
+# Skip update check (for faster startup)
+just-check-update: false
+
+##############
+# Reasoning Models:
+##############
+
+# Thinking tokens budget (for o1/o3 models)
+# thinking-tokens: 10000
+
+# Reasoning effort (low, medium, high)
+# reasoning-effort: medium
+
+##############
+# Home Lab Specific:
+##############
+
+# Files to always include for context
+# Update these based on your project structure
+
+# Terraform projects
+# read:
+#   - terraform/backend.tf
+#   - terraform/versions.tf
+#   - terraform/variables.tf
+
+# Ansible projects
+# read:
+#   - ansible/ansible.cfg
+#   - ansible/inventory/hosts
+#   - ansible/group_vars/all.yml
+
+# Kubernetes projects
+# read:
+#   - kubernetes/kustomization.yaml
+#   - kubernetes/base/namespace.yaml
+
+# Docker projects
+# read:
+#   - docker-compose.yml
+#   - .dockerignore
+
+##############
+# Model Aliases:
+##############
+
+# Convenient aliases for models
+alias:
+  - "sonnet:claude-sonnet-4-20250514"
+  - "opus:claude-opus-4-20250514"
+  - "gpt4:gpt-4-turbo-preview"
+  - "gpt35:gpt-3.5-turbo"
+
+##############
+# Notes:
+##############
+
+# This configuration is optimized for home lab infrastructure development
+# Key features enabled:
+# - Auto-commits for rapid iteration
+# - Dirty commits allowed (home lab permissive)
+# - Prompt caching for cost savings
+# - Auto-linting for code quality
+# - Pretty output with custom colors
+# - Watch files for external changes
+#
+# Security considerations:
+# - API keys via environment variables
+# - Sensitive data should use git-crypt or similar
+# - Review commits before pushing to remote
+#
+# Performance tips:
+# - Use weak-model for simple refactoring tasks
+# - Enable prompt caching to reduce costs
+# - Use subtree-only to avoid committing unrelated files
+#
+# Customization:
+# - Add project-specific read files above
+# - Adjust lint commands for your tools
+# - Modify colors to match your terminal theme

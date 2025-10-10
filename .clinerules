@@ -1,0 +1,226 @@
+# Home Lab Infrastructure Development Rules
+
+## Project Context
+This is a home lab infrastructure project focused on virtualization, containerization, networking, storage, and automation using modern DevOps practices. The goal is rapid experimentation with production-grade architectural patterns.
+
+## Core Principles
+- **Security Posture**: Permissive for development velocity, but implement production-grade patterns for HA, load balancing, and caching
+- **Version Standards**: Always use latest stable releases; proactively identify and remove deprecated packages
+- **Infrastructure as Code**: All infrastructure must be codified, version-controlled, and reproducible
+- **Documentation**: Self-documenting code with inline comments for complex logic
+
+## Technology Stack Versions
+- Terraform: 1.13.3 (latest stable)
+- Ansible Core: 2.19.3
+- Ansible Community: 12.1.0
+- Kubernetes: 1.34.x (latest stable)
+- Docker: Latest stable
+- Python: 3.11+ (for Ansible compatibility)
+
+## Infrastructure as Code Standards
+
+### Terraform
+- Use HCL2 syntax exclusively
+- Pin provider versions using `~>` for patch updates
+- Structure: modules in `modules/`, environments in `environments/`
+- Name resources with descriptive, kebab-case names
+- Always include `terraform.tfvars.example` for reference
+- Use remote state (S3, GCS, or TF Cloud)
+- Implement workspaces for environment separation
+- Tag all resources with: `Environment`, `ManagedBy`, `Project`
+- Use `data` sources to reference existing infrastructure
+- Implement lifecycle rules to prevent accidental destruction
+- Use `terraform fmt` before committing
+- Document module inputs/outputs with descriptions
+
+### Ansible
+- Use YAML syntax with 2-space indentation
+- Structure: `playbooks/`, `roles/`, `inventory/`, `group_vars/`, `host_vars/`
+- Role structure: Follow ansible-galaxy init conventions
+- Use fully qualified collection names (FQCN)
+- Prefer `ansible.builtin` over legacy modules
+- Use `become` explicitly when privilege escalation needed
+- Implement idempotency - always test with `--check` mode
+- Use `ansible-vault` for sensitive data
+- Tag tasks for selective execution
+- Use `block` for error handling and logical grouping
+- Name all tasks descriptively
+- Use `delegate_to` for orchestration patterns
+- Implement proper handlers for service restarts
+- Use `meta: flush_handlers` when immediate execution needed
+
+### Kubernetes
+- Use YAML manifests or Helm charts
+- Namespace everything (except cluster-wide resources)
+- Implement ResourceQuotas and LimitRanges
+- Use ConfigMaps and Secrets for configuration
+- Define resource requests and limits
+- Implement liveness and readiness probes
+- Use Deployments over ReplicaSets
+- Implement rolling updates with maxSurge and maxUnavailable
+- Use StatefulSets for stateful applications
+- Implement PodDisruptionBudgets for HA
+- Use NetworkPolicies for micro-segmentation
+- Label everything consistently
+- Use annotations for metadata
+
+## High Availability Patterns
+
+### Load Balancing
+- HAProxy: Active-passive with keepalived
+- Nginx: Use upstream blocks with health checks
+- Traefik: Implement service mesh patterns
+- Always define backend health checks
+- Implement connection limits and timeouts
+- Use sticky sessions when needed (sessionAffinity)
+
+### Caching Layers
+- Redis: Implement Redis Sentinel for HA
+- Memcached: Use consistent hashing
+- Varnish: For HTTP caching in front of web services
+- Define TTLs explicitly
+- Implement cache invalidation strategies
+
+### Database HA
+- PostgreSQL: Patroni + etcd/consul for automatic failover
+- MySQL/MariaDB: Galera cluster or InnoDB Cluster
+- MongoDB: Replica sets with proper write concerns
+- Always implement automated backups
+- Test restore procedures regularly
+
+## Cloud Platform Patterns
+
+### AWS
+- Use CloudFormation or CDK for infrastructure
+- Implement Auto Scaling Groups
+- Use Application Load Balancers for HTTP/HTTPS
+- Network Load Balancers for TCP/UDP
+- Use RDS Multi-AZ for databases
+- Implement CloudWatch alarms
+- Use Systems Manager for configuration management
+- Tag all resources with cost allocation tags
+
+### Google Cloud
+- Use Deployment Manager or Terraform
+- Implement Managed Instance Groups
+- Use Cloud Load Balancing (Global/Regional)
+- Cloud SQL with high availability
+- Use Cloud Monitoring and Logging
+- Implement service accounts with least privilege
+
+### Vercel
+- Use `vercel.json` for configuration
+- Implement edge functions for dynamic content
+- Use environment variables for configuration
+- Implement preview deployments per branch
+
+### Heroku
+- Use Procfile for process types
+- Implement dyno scaling policies
+- Use Heroku Postgres with HA plans
+- Define buildpacks explicitly in app.json
+
+## Networking Patterns
+
+### Tailscale
+- Define ACLs in `policy.hujson` format
+- Use tags for grouping and access control
+- Implement auto-approvers for automation
+- Use subnet routing for LAN access
+- Define SSH policy for remote access
+- Implement MagicDNS for service discovery
+
+### Service Mesh
+- Use service-to-service encryption
+- Implement traffic splitting for canary deployments
+- Define retry and timeout policies
+- Use circuit breakers for fault tolerance
+
+## Container Patterns
+- Multi-stage builds for smaller images
+- Use specific tags, never `:latest` in production
+- Implement healthchecks in Dockerfile
+- Run as non-root user
+- Use `.dockerignore` to reduce context size
+- Scan images for vulnerabilities
+- Use BuildKit for better caching
+
+## Code Quality
+- Run linters before committing
+- Fix all deprecation warnings immediately
+- Use pre-commit hooks for validation
+- Implement CI/CD for automated testing
+- Use semantic versioning for releases
+
+## File Organization
+```
+project-root/
+├── .clinerules/           # Cline rules directory
+├── .cursor/rules/         # Cursor rules directory
+├── .github/workflows/     # CI/CD pipelines
+├── ansible/
+│   ├── playbooks/
+│   ├── roles/
+│   ├── inventory/
+│   └── ansible.cfg
+├── terraform/
+│   ├── modules/
+│   ├── environments/
+│   └── backend.tf
+├── kubernetes/
+│   ├── base/
+│   ├── overlays/
+│   └── kustomization.yaml
+├── docker/
+│   └── Dockerfile
+├── scripts/               # Automation scripts
+└── docs/                  # Documentation
+```
+
+## Deprecated Features to Avoid
+
+### Terraform
+- Avoid: terraform_remote_state (use data sources)
+- Avoid: count with resources that should use for_each
+- Avoid: Naked providers without required_providers block
+
+### Ansible
+- Avoid: include (use include_tasks or import_tasks)
+- Avoid: Short-form module names (use FQCN)
+- Avoid: with_* loops (use loop keyword)
+- Avoid: bare variables (use {{ }} templating)
+
+### Kubernetes
+- Avoid: API versions in beta for production
+- Avoid: extensions/v1beta1 (use apps/v1)
+- Avoid: kubectl run for production (use manifests)
+
+## Communication Style
+- Ask clarifying questions for ambiguous requirements
+- Suggest production-grade alternatives for quick hacks
+- Explain trade-offs in architectural decisions
+- Warn about potential issues before implementation
+- Provide examples from official documentation
+
+## Before Making Changes
+1. Review current stable versions of all dependencies
+2. Check for deprecated features in existing code
+3. Validate syntax with appropriate linters
+4. Test in isolated environment before applying
+5. Document breaking changes clearly
+
+## When Creating New Infrastructure
+1. Start with a design document
+2. Implement IaC before manual configuration
+3. Include monitoring and logging from day one
+4. Implement backup and disaster recovery
+5. Document access patterns and credentials storage
+
+## Home Lab Specific Considerations
+- Optimize for resource efficiency (memory, CPU, storage)
+- Implement local caching where possible
+- Use lightweight alternatives when appropriate
+- Document power consumption considerations
+- Plan for hardware upgrade paths
+- Implement remote access securely
+- Consider noise levels for residential deployments

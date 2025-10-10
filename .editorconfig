@@ -1,0 +1,162 @@
+# EditorConfig helps maintain consistent coding styles across different editors and IDEs
+# https://editorconfig.org
+
+root = true
+
+# Default settings for all files
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# Python files
+[*.py]
+indent_size = 4
+max_line_length = 100
+
+# Go files
+[*.go]
+indent_style = tab
+indent_size = 4
+
+# Rust files
+[*.rs]
+indent_size = 4
+max_line_length = 100
+
+# Shell scripts
+[*.{sh,bash,zsh}]
+indent_size = 2
+
+# Makefiles require tabs
+[Makefile]
+indent_style = tab
+
+[*.mk]
+indent_style = tab
+
+# YAML files (Ansible, Kubernetes, Docker Compose)
+[*.{yml,yaml}]
+indent_size = 2
+
+# JSON files
+[*.json]
+indent_size = 2
+
+# TOML files
+[*.toml]
+indent_size = 2
+
+# Terraform files
+[*.{tf,tfvars}]
+indent_size = 2
+
+# HCL files
+[*.hcl]
+indent_size = 2
+
+# JavaScript/TypeScript
+[*.{js,jsx,ts,tsx}]
+indent_size = 2
+max_line_length = 100
+
+# CSS/SCSS/LESS
+[*.{css,scss,sass,less}]
+indent_size = 2
+
+# HTML/XML
+[*.{html,xml,svg}]
+indent_size = 2
+
+# Markdown
+[*.md]
+trim_trailing_whitespace = false
+max_line_length = 80
+
+# Dockerfile
+[Dockerfile*]
+indent_size = 4
+
+# Docker Compose
+[docker-compose*.{yml,yaml}]
+indent_size = 2
+
+# Nginx configuration
+[*.conf]
+indent_size = 4
+
+# HAProxy configuration
+[haproxy.cfg]
+indent_size = 4
+
+# Configuration files
+[*.{cfg,ini,conf}]
+indent_size = 4
+
+# Git
+[.gitattributes]
+indent_size = 2
+
+[.gitignore]
+indent_size = 2
+
+[.gitmodules]
+indent_size = 2
+
+# CI/CD
+[.github/workflows/*.{yml,yaml}]
+indent_size = 2
+
+[.gitlab-ci.yml]
+indent_size = 2
+
+[.circleci/config.yml]
+indent_size = 2
+
+# Package management
+[package.json]
+indent_size = 2
+
+[package-lock.json]
+indent_size = 2
+
+[yarn.lock]
+indent_size = 2
+
+[Gemfile*]
+indent_size = 2
+
+[requirements*.txt]
+indent_size = 2
+
+[Pipfile*]
+indent_size = 4
+
+[poetry.lock]
+indent_size = 2
+
+# Documentation
+[*.rst]
+indent_size = 3
+max_line_length = 80
+
+# Batch files (Windows)
+[*.{bat,cmd}]
+end_of_line = crlf
+
+# PowerShell
+[*.ps1]
+indent_size = 4
+
+# Ignore generated files
+[*.{min.js,min.css}]
+insert_final_newline = false
+trim_trailing_whitespace = false
+
+# Binary files
+[*.{png,jpg,jpeg,gif,ico,svg,woff,woff2,ttf,eot}]
+insert_final_newline = false
+trim_trailing_whitespace = false
