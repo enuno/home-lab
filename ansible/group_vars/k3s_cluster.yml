@@ -15,7 +15,7 @@ k3s_version: "v1.34.1+k3s1"  # Use latest stable: https://github.com/k3s-io/k3s/
 # The endpoint for the Kubernetes API server
 # For HA: Use a load balancer VIP or DNS name
 # For single master: Use the master node IP
-k3s_api_endpoint: "10.2.0.104"  # Change to your master IP or LB VIP
+k3s_api_endpoint: "10.2.0.100"  # Change to your master IP or LB VIP
 
 # ============================================
 # Cluster Token
