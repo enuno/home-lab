@@ -7,7 +7,7 @@
 # Cluster Identity
 # ============================================
 k3s_cluster_name: "homelab-k3s"
-k3s_version: "v1.34.0+k3s1"  # Use latest stable: https://github.com/k3s-io/k3s/releases
+k3s_version: "v1.34.1+k3s1"  # Use latest stable: https://github.com/k3s-io/k3s/releases
 
 # ============================================
 # API Server Configuration

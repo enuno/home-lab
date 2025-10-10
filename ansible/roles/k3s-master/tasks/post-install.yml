@@ -12,26 +12,74 @@
   when: k3s_flannel_backend is defined and k3s_flannel_backend == 'none'
   tags: [cni, calico]
   block:
-    - name: Download Calico manifest
-      ansible.builtin.get_url:
-        url: https://raw.githubusercontent.com/projectcalico/calico/v3.29.1/manifests/calico.yaml
-        dest: /tmp/calico.yaml
+    - name: Create Calico custom resources manifest
+      ansible.builtin.copy:
+        content: |
+          ---
+          # This section includes base Calico installation configuration.
+          # For more information, see: https://docs.tigera.io/calico/latest/reference/installation/api#operator.tigera.io/v1.Installation
+          apiVersion: operator.tigera.io/v1
+          kind: Installation
+          metadata:
+            name: default
+          spec:
+            # Configures Calico networking.
+            calicoNetwork:
+              # Note: The ipPools section cannot be modified post-install.
+              ipPools:
+              - blockSize: 26
+                cidr: {{ k3s_cluster_cidr }}
+                encapsulation: VXLANCrossSubnet
+                natOutgoing: Enabled
+                nodeSelector: all()
+              # Disable BGP
+              bgp: Disabled
+          ---
+          # This section configures the Calico API server.
+          # For more information, see: https://docs.tigera.io/calico/latest/reference/installation/api#operator.tigera.io/v1.APIServer
+          apiVersion: operator.tigera.io/v1
+          kind: APIServer
+          metadata:
+            name: default
+          spec: {}
+        dest: /tmp/calico-custom-resources.yaml
         mode: '0644'
 
-    - name: Apply Calico CNI
-      ansible.builtin.command: kubectl apply -f /tmp/calico.yaml
+    - name: Install Calico operator
+      ansible.builtin.command: kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.29.1/manifests/tigera-operator.yaml
       environment:
         KUBECONFIG: /etc/rancher/k3s/k3s.yaml
-      register: calico_result
-      changed_when: "'created' in calico_result.stdout or 'configured' in calico_result.stdout"
+      register: calico_operator_result
+      changed_when: "'created' in calico_operator_result.stdout or 'configured' in calico_operator_result.stdout"
+      failed_when: calico_operator_result.rc != 0 and 'AlreadyExists' not in calico_operator_result.stderr
 
-    - name: Wait for Calico pods to be ready
-      ansible.builtin.command: kubectl wait --for=condition=ready pod -l k8s-app=calico-node -n kube-system --timeout=300s
+    - name: Wait for Calico operator to be ready
+      ansible.builtin.command: kubectl wait --for=condition=available deployment/tigera-operator -n tigera-operator --timeout=180s
       environment:
         KUBECONFIG: /etc/rancher/k3s/k3s.yaml
       changed_when: false
       retries: 3
       delay: 10
+      register: operator_wait
+      until: operator_wait.rc == 0
+
+    - name: Apply Calico custom resources
+      ansible.builtin.command: kubectl apply -f /tmp/calico-custom-resources.yaml
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: calico_result
+      changed_when: "'created' in calico_result.stdout or 'configured' in calico_result.stdout"
+
+    - name: Wait for Calico installation to be ready
+      ansible.builtin.command: kubectl wait --for=condition=available deployment/calico-kube-controllers -n calico-system --timeout=300s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      changed_when: false
+      retries: 5
+      delay: 15
+      register: calico_wait
+      until: calico_wait.rc == 0
+      ignore_errors: true
 
 - name: Install MetalLB
   when: k3s_install_metallb | default(false)
