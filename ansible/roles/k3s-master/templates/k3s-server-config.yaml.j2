@@ -116,14 +116,9 @@ disable:
   - metrics-server
 {% endif %}
 
-# Flannel backend
-{% if k3s_flannel_backend is defined %}
+# Flannel backend (set to 'none' to disable and use alternative CNI)
+{% if k3s_flannel_backend is defined and k3s_flannel_backend != '' %}
 flannel-backend: "{{ k3s_flannel_backend }}"
-{% endif %}
-
-# Disable flannel (if using alternative CNI)
-{% if k3s_flannel_backend == 'none' %}
-flannel-backend: none
 {% endif %}
 
 # Enable secrets encryption

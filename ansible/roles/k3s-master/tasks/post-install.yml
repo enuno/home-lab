@@ -9,7 +9,7 @@
   tags: [post-install]
 
 - name: Install Calico CNI (since Flannel is disabled)
-  when: k3s_flannel_backend == 'none'
+  when: k3s_flannel_backend is defined and k3s_flannel_backend == 'none'
   tags: [cni, calico]
   block:
     - name: Download Calico manifest
