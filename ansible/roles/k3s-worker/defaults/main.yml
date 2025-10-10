@@ -3,10 +3,11 @@
 # These can be overridden by group_vars or host_vars
 
 # K3s version to install
-k3s_version: "v1.30.6+k3s1"
+# Note: These should be set in group_vars, not here
+# k3s_version: "v1.30.6+k3s1"
 
 # API endpoint
-k3s_api_endpoint: "127.0.0.1"
+# k3s_api_endpoint: "127.0.0.1"
 
 # Node labels and taints
 k3s_node_labels: {}
