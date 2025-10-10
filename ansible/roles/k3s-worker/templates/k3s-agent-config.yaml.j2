@@ -1,0 +1,59 @@
+# K3s Agent (Worker) Configuration
+# https://docs.k3s.io/installation/configuration
+
+# Server connection
+server: "https://{{ k3s_api_endpoint }}:6443"
+token: "{{ hostvars[groups['k3s_masters'][0]]['k3s_node_token'] }}"
+
+# Node configuration
+node-name: "{{ inventory_hostname }}"
+node-ip: "{{ ansible_default_ipv4.address }}"
+
+{% if k3s_node_labels | default({}) | length > 0 %}
+node-label:
+{% for key, value in k3s_node_labels.items() %}
+  - "{{ key }}={{ value }}"
+{% endfor %}
+{% endif %}
+
+{% if k3s_node_taints | default([]) | length > 0 %}
+node-taint:
+{% for taint in k3s_node_taints %}
+  - "{{ taint }}"
+{% endfor %}
+{% endif %}
+
+# Container runtime
+{% if k3s_container_runtime_endpoint is defined %}
+container-runtime-endpoint: "{{ k3s_container_runtime_endpoint }}"
+{% endif %}
+
+# Kubelet arguments
+{% if k3s_kubelet_args | default([]) | length > 0 %}
+kubelet-arg:
+{% for arg in k3s_kubelet_args %}
+  - "{{ arg }}"
+{% endfor %}
+{% endif %}
+
+# Data directory
+{% if k3s_data_dir is defined %}
+data-dir: "{{ k3s_data_dir }}"
+{% endif %}
+
+# Protect kernel defaults
+{% if k3s_protect_kernel_defaults | default(false) %}
+protect-kernel-defaults: true
+{% endif %}
+
+# SELinux
+{% if k3s_selinux | default(false) %}
+selinux: true
+{% endif %}
+
+# Additional agent arguments
+{% if k3s_extra_agent_args | default([]) | length > 0 %}
+{% for arg in k3s_extra_agent_args %}
+{{ arg }}
+{% endfor %}
+{% endif %}

@@ -1,0 +1,213 @@
+---
+# K3s Master Node Installation and Configuration
+# Handles both first master (cluster init) and additional masters (HA join)
+
+- name: Install required system packages
+  ansible.builtin.package:
+    name:
+      - curl
+      - ca-certificates
+      - iptables
+      - git
+      - conntrack
+    state: present
+    update_cache: true
+  tags: [packages]
+
+- name: Disable swap for Kubernetes
+  ansible.builtin.command: swapoff -a
+  changed_when: false
+  tags: [system]
+
+- name: Remove swap from /etc/fstab
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: '^.*swap.*$'
+    state: absent
+  tags: [system]
+
+- name: Enable IPv4 forwarding
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: '1'
+    sysctl_set: true
+    state: present
+    reload: true
+  tags: [system, networking]
+
+- name: Enable IPv6 forwarding (if enabled)
+  ansible.posix.sysctl:
+    name: net.ipv6.conf.all.forwarding
+    value: '1'
+    sysctl_set: true
+    state: present
+    reload: true
+  when: k3s_enable_ipv6 | default(false)
+  tags: [system, networking]
+
+- name: Create K3s config directory
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+  tags: [config]
+
+- name: Check if K3s is already installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary
+  tags: [install]
+
+- name: Get installed K3s version
+  ansible.builtin.command: k3s --version
+  register: installed_version
+  changed_when: false
+  failed_when: false
+  when: k3s_binary.stat.exists
+  tags: [install]
+
+- name: Deploy first master node (cluster initialization)
+  when: k3s_is_first_master | default(false)
+  tags: [install, init]
+  block:
+    - name: Generate K3s cluster token
+      ansible.builtin.set_fact:
+        k3s_token: "{{ k3s_cluster_token | default(lookup('password', '/dev/null chars=ascii_letters,digits length=64')) }}"
+      run_once: true
+      delegate_to: "{{ groups['k3s_masters'][0] }}"
+
+    - name: Create K3s server config file (first master)
+      ansible.builtin.template:
+        src: k3s-server-config.yaml.j2
+        dest: /etc/rancher/k3s/config.yaml
+        mode: '0600'
+        owner: root
+        group: root
+
+    - name: Install K3s on first master
+      ansible.builtin.shell: |
+        curl -sfL https://get.k3s.io | \
+        INSTALL_K3S_VERSION="{{ k3s_version }}" \
+        INSTALL_K3S_EXEC="server" \
+        sh -
+      args:
+        creates: /usr/local/bin/k3s
+      environment:
+        K3S_TOKEN: "{{ k3s_token }}"
+
+    - name: Wait for K3s to be ready
+      ansible.builtin.wait_for:
+        path: /etc/rancher/k3s/k3s.yaml
+        timeout: 300
+
+    - name: Save cluster token for additional masters
+      ansible.builtin.slurp:
+        src: /var/lib/rancher/k3s/server/node-token
+      register: node_token
+
+    - name: Store node token as fact
+      ansible.builtin.set_fact:
+        k3s_node_token: "{{ node_token.content | b64decode | trim }}"
+      delegate_to: "{{ item }}"
+      delegate_facts: true
+      loop: "{{ groups['k3s_masters'] + groups['k3s_workers'] }}"
+
+- name: Deploy additional master nodes (HA join)
+  when: not (k3s_is_first_master | default(false)) and inventory_hostname in groups['k3s_masters']
+  tags: [install, ha]
+  block:
+    - name: Wait for first master to be ready
+      ansible.builtin.wait_for:
+        host: "{{ hostvars[groups['k3s_masters'][0]]['ansible_default_ipv4']['address'] }}"
+        port: 6443
+        timeout: 300
+      delegate_to: localhost
+
+    - name: Create K3s server config file (additional master)
+      ansible.builtin.template:
+        src: k3s-server-config.yaml.j2
+        dest: /etc/rancher/k3s/config.yaml
+        mode: '0600'
+        owner: root
+        group: root
+
+    - name: Install K3s on additional master
+      ansible.builtin.shell: |
+        curl -sfL https://get.k3s.io | \
+        INSTALL_K3S_VERSION="{{ k3s_version }}" \
+        INSTALL_K3S_EXEC="server" \
+        sh -
+      args:
+        creates: /usr/local/bin/k3s
+      environment:
+        K3S_TOKEN: "{{ hostvars[groups['k3s_masters'][0]]['k3s_node_token'] }}"
+        K3S_URL: "https://{{ hostvars[groups['k3s_masters'][0]]['ansible_default_ipv4']['address'] }}:6443"
+
+- name: Enable and start K3s service
+  ansible.builtin.systemd:
+    name: k3s
+    enabled: true
+    state: started
+  tags: [service]
+
+- name: Wait for node to be ready
+  ansible.builtin.command: kubectl get nodes {{ inventory_hostname }}
+  register: node_ready
+  until: node_ready.stdout.find('Ready') != -1
+  retries: 30
+  delay: 10
+  changed_when: false
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  tags: [verification]
+
+- name: Create kubectl symlink
+  ansible.builtin.file:
+    src: /usr/local/bin/k3s
+    dest: /usr/local/bin/kubectl
+    state: link
+  tags: [tools]
+
+- name: Set up kubectl completion for bash
+  ansible.builtin.lineinfile:
+    path: /etc/bash.bashrc
+    line: 'source <(kubectl completion bash)'
+    create: true
+    mode: '0644'
+  when: ansible_shell_type == 'bash'
+  tags: [tools]
+
+- name: Create kubeconfig for ansible user
+  ansible.builtin.copy:
+    src: /etc/rancher/k3s/k3s.yaml
+    dest: "/home/{{ ansible_user }}/.kube/config"
+    remote_src: true
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0600'
+  when: ansible_user != 'root'
+  tags: [kubeconfig]
+
+- name: Label master node
+  ansible.builtin.command: |
+    kubectl label node {{ inventory_hostname }} \
+    node-role.kubernetes.io/master=true \
+    --overwrite
+  changed_when: false
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  tags: [labels]
+
+- name: Taint master nodes (if workloads should not run on masters)
+  ansible.builtin.command: |
+    kubectl taint node {{ inventory_hostname }} \
+    node-role.kubernetes.io/master=true:NoSchedule \
+    --overwrite
+  when: k3s_taint_masters | default(true)
+  changed_when: false
+  failed_when: false
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  tags: [taints]

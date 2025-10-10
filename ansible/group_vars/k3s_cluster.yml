@@ -1,0 +1,187 @@
+---
+# K3s Cluster Configuration Variables
+# These variables apply to all nodes in the k3s_cluster group
+# Override these in inventory host_vars/ or pass as extra-vars
+
+# ============================================
+# Cluster Identity
+# ============================================
+k3s_cluster_name: "homelab-k3s"
+k3s_version: "v1.34.0+k3s1"  # Use latest stable: https://github.com/k3s-io/k3s/releases
+
+# ============================================
+# API Server Configuration
+# ============================================
+# The endpoint for the Kubernetes API server
+# For HA: Use a load balancer VIP or DNS name
+# For single master: Use the master node IP
+k3s_api_endpoint: "192.168.1.10"  # Change to your master IP or LB VIP
+
+# ============================================
+# Cluster Token
+# ============================================
+# Shared secret for nodes to join the cluster
+# Generate a secure token: openssl rand -base64 48
+# Leave undefined to auto-generate (recommended for new clusters)
+# k3s_cluster_token: "your-super-secret-token-here"
+
+# ============================================
+# Network Configuration
+# ============================================
+# Pod network CIDR
+k3s_cluster_cidr: "10.42.0.0/16"
+
+# Service network CIDR
+k3s_service_cidr: "10.43.0.0/16"
+
+# Cluster DNS
+k3s_cluster_dns: "10.43.0.10"
+
+# Enable IPv6 (dual-stack)
+k3s_enable_ipv6: false
+
+# Flannel backend options: vxlan, host-gw, wireguard-native, none
+k3s_flannel_backend: "vxlan"
+
+# ============================================
+# Embedded Components
+# ============================================
+# Disable default K3s components (set to true to disable)
+k3s_disable_traefik: true       # Disable if using Nginx/other ingress
+k3s_disable_servicelb: true     # Disable if using MetalLB/other LB
+k3s_disable_metrics_server: false  # Keep enabled for HPA
+
+# Additional components to disable (list)
+k3s_disable_components: []
+  - traefik
+  - servicelb
+  # - metrics-server
+  # - local-storage
+
+# ============================================
+# Master Node Configuration
+# ============================================
+# Taint masters to prevent workloads from running on them
+k3s_taint_masters: true
+
+# ============================================
+# Etcd Backup Configuration
+# ============================================
+# Automated etcd snapshots (backups)
+k3s_etcd_snapshot_schedule: "0 */12 * * *"  # Every 12 hours
+k3s_etcd_snapshot_retention: 5              # Keep last 5 snapshots
+k3s_etcd_snapshot_dir: "/var/lib/rancher/k3s/server/db/snapshots"
+k3s_etcd_expose_metrics: false
+
+# ============================================
+# Security Configuration
+# ============================================
+# Enable secrets encryption at rest
+k3s_secrets_encryption: false
+
+# Protect kernel defaults (may cause issues on some systems)
+k3s_protect_kernel_defaults: false
+
+# SELinux support (for RHEL/CentOS)
+k3s_selinux: false
+
+# ============================================
+# Storage Configuration
+# ============================================
+# K3s data directory
+# k3s_data_dir: "/var/lib/rancher/k3s"
+
+# ============================================
+# Container Runtime
+# ============================================
+# Use external container runtime (leave undefined for default containerd)
+# k3s_container_runtime_endpoint: "unix:///run/containerd/containerd.sock"
+
+# ============================================
+# Node Labels (Applied to all nodes)
+# ============================================
+k3s_node_labels:
+  environment: "homelab"
+  cluster: "{{ k3s_cluster_name }}"
+  # nvidia.com/gpu: "true"  # Example for GPU nodes
+
+# ============================================
+# Node Taints
+# ============================================
+k3s_node_taints: []
+  # - "gpu=true:NoSchedule"  # Example for GPU nodes
+
+# ============================================
+# Kubelet Arguments
+# ============================================
+k3s_kubelet_args:
+  - "max-pods=110"
+  # - "eviction-hard=memory.available<500Mi"
+  # - "eviction-soft=memory.available<1Gi"
+  # - "eviction-soft-grace-period=memory.available=2m"
+
+# ============================================
+# Kube-proxy Arguments
+# ============================================
+k3s_kube_proxy_args: []
+  # - "metrics-bind-address=0.0.0.0:10249"
+
+# ============================================
+# API Server Arguments
+# ============================================
+k3s_kube_apiserver_args: []
+  # - "enable-admission-plugins=NodeRestriction,PodSecurityPolicy"
+  # - "audit-log-path=/var/log/kubernetes/audit.log"
+  # - "audit-log-maxage=30"
+
+# ============================================
+# Additional Configuration
+# ============================================
+# Extra server arguments for masters
+k3s_extra_server_args: []
+
+# Extra agent arguments for workers
+k3s_extra_agent_args: []
+
+# ============================================
+# External Database (Optional - for HA)
+# ============================================
+# Use external database instead of embedded etcd
+# Supported: PostgreSQL, MySQL, MariaDB
+# Example: "postgres://username:password@hostname:5432/k3s"
+# k3s_datastore_endpoint: ""
+
+# ============================================
+# Custom TLS SANs
+# ============================================
+# Additional Subject Alternative Names for API server certificate
+# k3s_tls_san:
+#   - "k3s.example.com"
+#   - "192.168.1.100"
+
+# ============================================
+# High Availability Configuration
+# ============================================
+# Number of master nodes (must be odd number for etcd quorum)
+# Recommended: 3 or 5 masters for production HA
+# k3s_ha_masters: 3
+
+# ============================================
+# Monitoring & Logging
+# ============================================
+# Enable kube-apiserver metrics
+k3s_enable_apiserver_metrics: true
+
+# ============================================
+# Post-Install Configuration
+# ============================================
+# Create kubeconfig directory
+k3s_kubeconfig_dir: "{{ playbook_dir }}/../kubeconfig"
+
+# ============================================
+# Development/Testing Overrides
+# ============================================
+# For dev environments, you may want to disable taints
+# k3s_taint_masters: false
+# k3s_kubelet_args:
+#   - "max-pods=50"  # Lower for resource-constrained dev nodes

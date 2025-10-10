@@ -1,0 +1,58 @@
+---
+# K3s Worker Node Specific Configuration
+# Variables specific to worker nodes
+
+# ============================================
+# Worker Node Labels
+# ============================================
+k3s_worker_labels:
+  node-role.kubernetes.io/worker: "true"
+  workload-type: "general"
+  # Example labels:
+  # storage: "enabled"
+  # backup: "enabled"
+  # monitoring: "true"
+
+# ============================================
+# Worker Node Taints
+# ============================================
+# Apply taints to prevent certain workloads from scheduling
+k3s_worker_taints: []
+  # Examples:
+  # - "dedicated=gpu:NoSchedule"
+  # - "experimental=true:NoExecute"
+
+# ============================================
+# Worker-Specific Kubelet Arguments
+# ============================================
+# Override cluster-wide kubelet args for workers
+# k3s_kubelet_args:
+#   - "max-pods=110"
+#   - "kube-reserved=cpu=200m,memory=512Mi"
+#   - "system-reserved=cpu=200m,memory=512Mi"
+
+# ============================================
+# Resource Allocation
+# ============================================
+# Reserve resources for system and Kubernetes components
+# k3s_kubelet_args:
+#   - "kube-reserved=cpu=500m,memory=1Gi,ephemeral-storage=1Gi"
+#   - "system-reserved=cpu=500m,memory=1Gi,ephemeral-storage=1Gi"
+
+# ============================================
+# Storage Configuration
+# ============================================
+# Enable local path provisioner on workers
+k3s_enable_local_storage: true
+
+# ============================================
+# GPU Worker Configuration (Optional)
+# ============================================
+# Uncomment and customize for GPU workers
+# k3s_worker_labels:
+#   nvidia.com/gpu: "true"
+#   gpu-type: "tesla-t4"
+#   accelerator: "enabled"
+#
+# k3s_worker_taints:
+#   - "nvidia.com/gpu=true:NoSchedule"

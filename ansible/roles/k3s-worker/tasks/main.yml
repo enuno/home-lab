@@ -1,0 +1,185 @@
+---
+# K3s Worker Node Installation and Configuration
+# Joins worker nodes to the K3s cluster
+
+- name: Install required system packages
+  ansible.builtin.package:
+    name:
+      - curl
+      - ca-certificates
+      - iptables
+      - conntrack
+    state: present
+    update_cache: true
+  tags: [packages]
+
+- name: Disable swap for Kubernetes
+  ansible.builtin.command: swapoff -a
+  changed_when: false
+  tags: [system]
+
+- name: Remove swap from /etc/fstab
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: '^.*swap.*$'
+    state: absent
+  tags: [system]
+
+- name: Enable IPv4 forwarding
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: '1'
+    sysctl_set: true
+    state: present
+    reload: true
+  tags: [system, networking]
+
+- name: Enable IPv6 forwarding (if enabled)
+  ansible.posix.sysctl:
+    name: net.ipv6.conf.all.forwarding
+    value: '1'
+    sysctl_set: true
+    state: present
+    reload: true
+  when: k3s_enable_ipv6 | default(false)
+  tags: [system, networking]
+
+- name: Create K3s config directory
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+  tags: [config]
+
+- name: Check if K3s is already installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary
+  tags: [install]
+
+- name: Get installed K3s version
+  ansible.builtin.command: k3s --version
+  register: installed_version
+  changed_when: false
+  failed_when: false
+  when: k3s_binary.stat.exists
+  tags: [install]
+
+- name: Wait for first master to be ready
+  ansible.builtin.wait_for:
+    host: "{{ hostvars[groups['k3s_masters'][0]]['ansible_default_ipv4']['address'] }}"
+    port: 6443
+    timeout: 300
+  delegate_to: localhost
+  tags: [install]
+
+- name: Create K3s agent config file
+  ansible.builtin.template:
+    src: k3s-agent-config.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml
+    mode: '0600'
+    owner: root
+    group: root
+  tags: [config]
+
+- name: Install K3s agent on worker node
+  ansible.builtin.shell: |
+    curl -sfL https://get.k3s.io | \
+    INSTALL_K3S_VERSION="{{ k3s_version }}" \
+    INSTALL_K3S_EXEC="agent" \
+    sh -
+  args:
+    creates: /usr/local/bin/k3s
+  environment:
+    K3S_TOKEN: "{{ hostvars[groups['k3s_masters'][0]]['k3s_node_token'] }}"
+    K3S_URL: "https://{{ k3s_api_endpoint }}:6443"
+  tags: [install]
+
+- name: Enable and start K3s agent service
+  ansible.builtin.systemd:
+    name: k3s-agent
+    enabled: true
+    state: started
+  tags: [service]
+
+- name: Wait for node to be registered
+  ansible.builtin.pause:
+    seconds: 30
+  tags: [verification]
+
+- name: Verify worker node joined cluster
+  ansible.builtin.command: |
+    kubectl get node {{ inventory_hostname }}
+  delegate_to: "{{ groups['k3s_masters'][0] }}"
+  register: node_status
+  until: node_status.rc == 0
+  retries: 10
+  delay: 10
+  changed_when: false
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  tags: [verification]
+
+- name: Wait for node to be ready
+  ansible.builtin.command: kubectl get nodes {{ inventory_hostname }}
+  delegate_to: "{{ groups['k3s_masters'][0] }}"
+  register: node_ready
+  until: node_ready.stdout.find('Ready') != -1
+  retries: 30
+  delay: 10
+  changed_when: false
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  tags: [verification]
+
+- name: Create kubectl symlink
+  ansible.builtin.file:
+    src: /usr/local/bin/k3s
+    dest: /usr/local/bin/kubectl
+    state: link
+  tags: [tools]
+
+- name: Label worker node
+  ansible.builtin.command: |
+    kubectl label node {{ inventory_hostname }} \
+    node-role.kubernetes.io/worker=true \
+    --overwrite
+  delegate_to: "{{ groups['k3s_masters'][0] }}"
+  changed_when: false
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  tags: [labels]
+
+- name: Apply custom node labels
+  ansible.builtin.command: |
+    kubectl label node {{ inventory_hostname }} \
+    {{ item.key }}={{ item.value }} \
+    --overwrite
+  delegate_to: "{{ groups['k3s_masters'][0] }}"
+  loop: "{{ k3s_worker_labels | default({}) | dict2items }}"
+  changed_when: false
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when: k3s_worker_labels is defined and k3s_worker_labels | length > 0
+  tags: [labels]
+
+- name: Apply custom node taints
+  ansible.builtin.command: |
+    kubectl taint node {{ inventory_hostname }} \
+    {{ item }} \
+    --overwrite
+  delegate_to: "{{ groups['k3s_masters'][0] }}"
+  loop: "{{ k3s_worker_taints | default([]) }}"
+  changed_when: false
+  failed_when: false
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when: k3s_worker_taints is defined and k3s_worker_taints | length > 0
+  tags: [taints]
+
+- name: Display worker node status
+  ansible.builtin.debug:
+    msg: "Worker node {{ inventory_hostname }} successfully joined the cluster"
+  tags: [verification]

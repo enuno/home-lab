@@ -1,0 +1,37 @@
+---
+# K3s Worker Role Metadata
+
+galaxy_info:
+  author: Home Lab Infrastructure Team
+  description: Deploy and configure K3s worker nodes
+  license: MIT
+  min_ansible_version: "2.19"
+
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+        - noble
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+
+  galaxy_tags:
+    - kubernetes
+    - k3s
+    - containers
+    - orchestration
+    - cloud
+    - homelab
+
+dependencies: []
+
+collections:
+  - ansible.posix
+  - community.general

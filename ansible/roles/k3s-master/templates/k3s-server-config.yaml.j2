@@ -1,0 +1,150 @@
+# K3s Server Configuration
+# https://docs.k3s.io/installation/configuration
+
+# Cluster configuration
+{% if k3s_is_first_master | default(false) %}
+cluster-init: true
+{% else %}
+server: "https://{{ hostvars[groups['k3s_masters'][0]]['ansible_default_ipv4']['address'] }}:6443"
+{% endif %}
+
+# Token for cluster authentication
+token: "{{ k3s_token | default(hostvars[groups['k3s_masters'][0]]['k3s_node_token']) }}"
+
+# Networking
+{% if k3s_cluster_cidr is defined %}
+cluster-cidr: "{{ k3s_cluster_cidr }}"
+{% endif %}
+{% if k3s_service_cidr is defined %}
+service-cidr: "{{ k3s_service_cidr }}"
+{% endif %}
+{% if k3s_cluster_dns is defined %}
+cluster-dns: "{{ k3s_cluster_dns }}"
+{% endif %}
+
+# TLS SANs for API server certificate
+tls-san:
+  - "{{ k3s_api_endpoint }}"
+  - "{{ ansible_default_ipv4.address }}"
+  - "{{ ansible_hostname }}"
+  - "{{ ansible_fqdn }}"
+{% for host in groups['k3s_masters'] %}
+  - "{{ hostvars[host]['ansible_default_ipv4']['address'] }}"
+  - "{{ hostvars[host]['ansible_hostname'] }}"
+{% endfor %}
+
+# Disable components (optional)
+{% if k3s_disable_components | default([]) | length > 0 %}
+disable:
+{% for component in k3s_disable_components %}
+  - {{ component }}
+{% endfor %}
+{% endif %}
+
+# Datastore configuration
+{% if k3s_datastore_endpoint is defined %}
+datastore-endpoint: "{{ k3s_datastore_endpoint }}"
+{% endif %}
+
+# Node configuration
+node-name: "{{ inventory_hostname }}"
+node-ip: "{{ ansible_default_ipv4.address }}"
+{% if k3s_node_labels | default({}) | length > 0 %}
+node-label:
+{% for key, value in k3s_node_labels.items() %}
+  - "{{ key }}={{ value }}"
+{% endfor %}
+{% endif %}
+{% if k3s_node_taints | default([]) | length > 0 %}
+node-taint:
+{% for taint in k3s_node_taints %}
+  - "{{ taint }}"
+{% endfor %}
+{% endif %}
+
+# Write kubeconfig with correct permissions
+write-kubeconfig-mode: "0644"
+
+# Container runtime
+{% if k3s_container_runtime_endpoint is defined %}
+container-runtime-endpoint: "{{ k3s_container_runtime_endpoint }}"
+{% endif %}
+
+# Kubelet arguments
+{% if k3s_kubelet_args | default([]) | length > 0 %}
+kubelet-arg:
+{% for arg in k3s_kubelet_args %}
+  - "{{ arg }}"
+{% endfor %}
+{% endif %}
+
+# Kube-proxy arguments
+{% if k3s_kube_proxy_args | default([]) | length > 0 %}
+kube-proxy-arg:
+{% for arg in k3s_kube_proxy_args %}
+  - "{{ arg }}"
+{% endfor %}
+{% endif %}
+
+# API server arguments
+{% if k3s_kube_apiserver_args | default([]) | length > 0 %}
+kube-apiserver-arg:
+{% for arg in k3s_kube_apiserver_args %}
+  - "{{ arg }}"
+{% endfor %}
+{% endif %}
+
+# Disable default components for advanced setups
+{% if k3s_disable_traefik | default(false) %}
+disable:
+  - traefik
+{% endif %}
+
+{% if k3s_disable_servicelb | default(false) %}
+disable:
+  - servicelb
+{% endif %}
+
+{% if k3s_disable_metrics_server | default(false) %}
+disable:
+  - metrics-server
+{% endif %}
+
+# Flannel backend
+{% if k3s_flannel_backend is defined %}
+flannel-backend: "{{ k3s_flannel_backend }}"
+{% endif %}
+
+# Disable flannel (if using alternative CNI)
+{% if k3s_flannel_backend == 'none' %}
+flannel-backend: none
+{% endif %}
+
+# Enable secrets encryption
+{% if k3s_secrets_encryption | default(false) %}
+secrets-encryption: true
+{% endif %}
+
+# Protect kernel defaults
+{% if k3s_protect_kernel_defaults | default(false) %}
+protect-kernel-defaults: true
+{% endif %}
+
+# Embedded etcd configuration
+{% if k3s_etcd_expose_metrics | default(false) %}
+etcd-expose-metrics: true
+{% endif %}
+
+# Snapshots (backups)
+etcd-snapshot-schedule-cron: "{{ k3s_etcd_snapshot_schedule | default('0 */12 * * *') }}"
+etcd-snapshot-retention: {{ k3s_etcd_snapshot_retention | default(5) }}
+{% if k3s_etcd_snapshot_dir is defined %}
+etcd-snapshot-dir: "{{ k3s_etcd_snapshot_dir }}"
+{% endif %}
+
+# Additional server arguments
+{% if k3s_extra_server_args | default([]) | length > 0 %}
+{% for arg in k3s_extra_server_args %}
+{{ arg }}
+{% endfor %}
+{% endif %}
