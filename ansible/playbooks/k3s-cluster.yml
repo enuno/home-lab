@@ -40,6 +40,12 @@
   serial: 1  # Deploy masters one at a time for HA stability
   tags: [master, k3s]
 
+  pre_tasks:
+    - name: Load group variables explicitly
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../group_vars/k3s_cluster.yml"
+      tags: [always]
+
   roles:
     - role: k3s-master
       vars:
@@ -70,6 +76,12 @@
   become: true
   tags: [worker, k3s]
 
+  pre_tasks:
+    - name: Load group variables explicitly
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../group_vars/k3s_cluster.yml"
+      tags: [always]
+
   roles:
     - role: k3s-worker
 
@@ -78,6 +90,12 @@
   gather_facts: false
   become: true
   tags: [kubeconfig]
+
+  pre_tasks:
+    - name: Load group variables explicitly
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../group_vars/k3s_cluster.yml"
+      tags: [always]
 
   tasks:
     - name: Fetch kubeconfig from master
@@ -109,6 +127,12 @@
   hosts: localhost
   gather_facts: false
   tags: [verify, post-deployment]
+
+  pre_tasks:
+    - name: Load group variables explicitly
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../group_vars/k3s_cluster.yml"
+      tags: [always]
 
   tasks:
     - name: Verify cluster health
