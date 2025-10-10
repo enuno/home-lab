@@ -42,7 +42,7 @@ k3s_enable_ipv6: false
 
 # Flannel backend options: vxlan, host-gw, wireguard-native, none
 # Set to 'none' to use alternative CNI (Calico, Cilium, etc.)
-k3s_flannel_backend: "none"
+k3s_flannel_backend: "vxlan"
 
 # ============================================
 # Embedded Components
@@ -191,7 +191,7 @@ k3s_kubeconfig_dir: "{{ playbook_dir }}/../kubeconfig"
 # MetalLB Configuration
 # ============================================
 # Install and configure MetalLB for bare-metal load balancing
-k3s_install_metallb: true
+k3s_install_metallb: false
 k3s_metallb_version: "v0.14.9"
 k3s_metallb_ip_pool: "10.41.0.0/16"
 k3s_metallb_pool_name: "default"
