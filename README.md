@@ -168,7 +168,7 @@ Docker: Latest stable
 
 ```markdown
 **Good Prompt:**
-"Create a Terraform module for deploying a highly available PostgreSQL 
+"Create a Terraform module for deploying a highly available PostgreSQL
 cluster on AWS using the latest Terraform 1.13 syntax. Include:
 - Multi-AZ deployment with automatic failover
 - Patroni for HA coordination
@@ -306,13 +306,45 @@ make tf-docs
 - Tag tasks appropriately
 - Vault sensitive data
 
-**Commands:**
+**Quick Start:**
 ```bash
-make ansible-ping
-make ansible-check
-make ansible-run
-make ansible-syntax
+cd ansible/
+
+# Set up vault password
+echo "your-secure-password" > .vault_password
+chmod 600 .vault_password
+
+# Test connectivity
+ansible -i inventory/k3s-cluster.ini k3s_cluster -m ping
+
+# Deploy K3s cluster
+ansible-playbook -i inventory/k3s-cluster.ini playbooks/k3s-cluster.yml
 ```
+
+**Common Commands:**
+```bash
+# Run with tags
+ansible-playbook -i inventory/k3s-cluster.ini playbooks/k3s-cluster.yml --tags master,worker
+
+# Check mode (dry run)
+ansible-playbook -i inventory/k3s-cluster.ini playbooks/k3s-cluster.yml --check
+
+# Limit to specific hosts
+ansible-playbook -i inventory/k3s-cluster.ini playbooks/k3s-cluster.yml --limit k3s-workers
+
+# Verbose output
+ansible-playbook -i inventory/k3s-cluster.ini playbooks/k3s-cluster.yml -vv
+```
+
+**📖 For detailed Ansible documentation, see [ansible/README.md](ansible/README.md)**
+
+Topics covered in the Ansible README:
+- Complete Ansible Vault setup and usage
+- Running playbooks with tags and limits
+- Available playbooks and roles
+- Troubleshooting guide
+- Post-deployment verification
+- Best practices and maintenance
 
 ### Kubernetes
 
@@ -357,12 +389,54 @@ make docker-compose-down
 - SSL certificates and private keys
 - Cloud provider credentials
 - SSH private keys
+- Vault password files (`.vault_password`)
 
 **Use instead:**
-- Ansible Vault for Ansible secrets
-- Environment variables via `.env` files
-- Cloud provider secret managers
+- **Ansible Vault** for Ansible secrets (recommended for this project)
+- Environment variables via `.env` files (gitignored)
+- Cloud provider secret managers (AWS Secrets Manager, GCP Secret Manager)
 - SOPS for encrypted config files
+- HashiCorp Vault for advanced secret management
+
+**Ansible Vault Quick Reference:**
+```bash
+# Create encrypted file
+ansible-vault create group_vars/secrets.yml
+
+# Edit encrypted file
+ansible-vault edit group_vars/secrets.yml
+
+# View encrypted file
+ansible-vault view group_vars/secrets.yml
+
+# Encrypt existing file
+ansible-vault encrypt group_vars/plain_secrets.yml
+
+# Decrypt file
+ansible-vault decrypt group_vars/secrets.yml
+
+# Change vault password
+ansible-vault rekey group_vars/secrets.yml
+```
+
+**Vault Password File Setup:**
+```bash
+# Create vault password file (already configured in ansible.cfg)
+echo "your-secure-password" > ansible/.vault_password
+chmod 600 ansible/.vault_password
+
+# The file is automatically used by Ansible
+# No need to specify --vault-password-file flag
+```
+
+**Best Practices for Vault:**
+1. Use strong vault passwords (16+ characters, mixed case, numbers, symbols)
+2. Store vault password securely (password manager, environment variable)
+3. Use separate vault files for different environments (dev, staging, prod)
+4. Prefix vault variables with `vault_` for easy identification
+5. Reference vault variables in regular group_vars files
+6. Never commit `.vault_password` files to version control
+7. Rotate vault passwords periodically (use `ansible-vault rekey`)
 
 ### Pre-commit Security Checks
 

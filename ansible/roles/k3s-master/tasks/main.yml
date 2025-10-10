@@ -78,6 +78,11 @@
       run_once: true
       delegate_to: "{{ groups['k3s_masters'][0] }}"
 
+    - name: Check if K3s config already exists
+      ansible.builtin.stat:
+        path: /etc/rancher/k3s/config.yaml
+      register: k3s_config_stat
+
     - name: Create K3s server config file (first master)
       ansible.builtin.template:
         src: k3s-server-config.yaml.j2
@@ -85,6 +90,7 @@
         mode: '0600'
         owner: root
         group: root
+      when: not k3s_config_stat.stat.exists or not k3s_binary.stat.exists
 
     - name: Install K3s on first master
       ansible.builtin.shell: |
@@ -126,6 +132,11 @@
       delegate_to: localhost
       become: false
 
+    - name: Check if K3s config already exists
+      ansible.builtin.stat:
+        path: /etc/rancher/k3s/config.yaml
+      register: k3s_config_stat_ha
+
     - name: Create K3s server config file (additional master)
       ansible.builtin.template:
         src: k3s-server-config.yaml.j2
@@ -133,6 +144,7 @@
         mode: '0600'
         owner: root
         group: root
+      when: not k3s_config_stat_ha.stat.exists or not k3s_binary.stat.exists
 
     - name: Install K3s on additional master
       ansible.builtin.shell: |
@@ -198,6 +210,19 @@
     owner: "{{ ansible_user }}"
     group: "{{ ansible_user }}"
     mode: '0600'
+  when: ansible_user != 'root'
+  tags: [kubeconfig]
+
+- name: Add KUBECONFIG environment variable to ansible user's .bashrc
+  ansible.builtin.lineinfile:
+    path: "/home/{{ ansible_user }}/.bashrc"
+    line: 'export KUBECONFIG="$HOME/.kube/config"'
+    regexp: '^export KUBECONFIG='
+    state: present
+    create: true
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0644'
   when: ansible_user != 'root'
   tags: [kubeconfig]
 
