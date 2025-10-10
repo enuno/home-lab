@@ -73,6 +73,7 @@
     port: 6443
     timeout: 300
   delegate_to: localhost
+  become: false
   tags: [install]
 
 - name: Create K3s agent config file

@@ -124,6 +124,7 @@
         port: 6443
         timeout: 300
       delegate_to: localhost
+      become: false
 
     - name: Create K3s server config file (additional master)
       ansible.builtin.template:
