@@ -1,0 +1,62 @@
+---
+# Default variables for k3s-master role
+# These can be overridden by group_vars or host_vars
+
+# K3s version to install
+k3s_version: "v1.30.6+k3s1"
+
+# API endpoint
+k3s_api_endpoint: "127.0.0.1"
+
+# Network configuration
+k3s_flannel_backend: "vxlan"
+k3s_cluster_cidr: "10.42.0.0/16"
+k3s_service_cidr: "10.43.0.0/16"
+k3s_cluster_dns: "10.43.0.10"
+
+# Cluster name
+k3s_cluster_name: "k3s-cluster"
+
+# Whether this is the first master (will be set by playbook)
+k3s_is_first_master: false
+
+# Component disabling
+k3s_disable_traefik: false
+k3s_disable_servicelb: false
+k3s_disable_metrics_server: false
+k3s_disable_components: []
+
+# Taint masters
+k3s_taint_masters: true
+
+# Node labels and taints
+k3s_node_labels: {}
+k3s_node_taints: []
+
+# Kubelet args
+k3s_kubelet_args: []
+k3s_kube_proxy_args: []
+k3s_kube_apiserver_args: []
+
+# Extra args
+k3s_extra_server_args: []
+
+# Etcd snapshots
+k3s_etcd_snapshot_schedule: "0 */12 * * *"
+k3s_etcd_snapshot_retention: 5
+k3s_etcd_snapshot_dir: "/var/lib/rancher/k3s/server/db/snapshots"
+k3s_etcd_expose_metrics: false
+
+# Security
+k3s_secrets_encryption: false
+k3s_protect_kernel_defaults: false
+k3s_selinux: false
+
+# IPv6
+k3s_enable_ipv6: false
+
+# MetalLB
+k3s_install_metallb: false
+k3s_metallb_version: "v0.14.9"
+k3s_metallb_ip_pool: "10.41.0.0/16"
+k3s_metallb_pool_name: "default"

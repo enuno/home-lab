@@ -1,0 +1,34 @@
+---
+# Default variables for k3s-worker role
+# These can be overridden by group_vars or host_vars
+
+# K3s version to install
+k3s_version: "v1.30.6+k3s1"
+
+# API endpoint
+k3s_api_endpoint: "127.0.0.1"
+
+# Node labels and taints
+k3s_node_labels: {}
+k3s_node_taints: []
+k3s_worker_labels: {}
+k3s_worker_taints: []
+
+# Kubelet args
+k3s_kubelet_args: []
+
+# Extra args
+k3s_extra_agent_args: []
+
+# Security
+k3s_protect_kernel_defaults: false
+k3s_selinux: false
+
+# IPv6
+k3s_enable_ipv6: false
+
+# Data directory
+# k3s_data_dir: "/var/lib/rancher/k3s"
+
+# Container runtime
+# k3s_container_runtime_endpoint: ""
