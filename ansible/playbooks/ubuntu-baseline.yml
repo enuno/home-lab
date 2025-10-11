@@ -20,8 +20,31 @@
           - fail2ban
           - nmap
           - zsh
+          - git
+          - curl
         state: present
       tags: [packages]
+
+    - name: Check if oh-my-zsh is already installed for ansible user
+      ansible.builtin.stat:
+        path: /home/ansible/.oh-my-zsh
+      register: ohmyzsh_installed
+      tags: [shell]
+
+    - name: Install oh-my-zsh for ansible user
+      ansible.builtin.shell: |
+        sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+      become: true
+      become_user: ansible
+      when: not ohmyzsh_installed.stat.exists
+      tags: [shell]
+      changed_when: true
+
+    - name: Set zsh as default shell for ansible user
+      ansible.builtin.user:
+        name: ansible
+        shell: /usr/bin/zsh
+      tags: [shell]
 
     - name: Ensure fail2ban is enabled and running
       ansible.builtin.systemd:
@@ -53,6 +76,12 @@
             - fail2ban (intrusion prevention)
             - nmap (network scanning)
             - zsh (advanced shell)
+            - git (version control)
+            - curl (data transfer)
+
+          Shell Configuration:
+            - oh-my-zsh installed for ansible user
+            - zsh set as default shell for ansible user
 
           Security:
             - fail2ban enabled and running
