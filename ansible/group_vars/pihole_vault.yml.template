@@ -1,0 +1,26 @@
+---
+# Pi-hole Vault Configuration
+# Encrypted variables for Pi-hole deployment
+#
+# To encrypt this file, run:
+# ansible-vault encrypt group_vars/pihole_vault.yml
+#
+# To edit this file, run:
+# ansible-vault edit group_vars/pihole_vault.yml
+#
+# To decrypt this file, run:
+# ansible-vault decrypt group_vars/pihole_vault.yml
+
+# ============================================
+# Admin Credentials
+# ============================================
+# IMPORTANT: Change this password before deploying!
+# Generate a strong password using: openssl rand -base64 32
+vault_pihole_admin_password: "ChangeThisToASecurePassword123!"
+
+# ============================================
+# Optional: Additional Secret Configuration
+# ============================================
+# Add any other sensitive Pi-hole configuration here
+# vault_pihole_api_token: ""
+# vault_pihole_teleporter_key: ""

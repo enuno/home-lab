@@ -1,0 +1,190 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pihole
+  namespace: {{ pihole_namespace }}
+  labels:
+    app: pihole
+spec:
+  replicas: {{ pihole_replicas }}
+  strategy:
+    type: {{ pihole_update_strategy }}
+  selector:
+    matchLabels:
+      app: pihole
+  template:
+    metadata:
+      labels:
+        app: pihole
+    spec:
+      # Use hostNetwork for better DNS performance (optional)
+      # hostNetwork: true
+      # dnsPolicy: ClusterFirstWithHostNet
+
+      containers:
+      - name: pihole
+        image: {{ pihole_image }}:{{ pihole_image_tag }}
+        imagePullPolicy: {{ pihole_image_pull_policy }}
+
+        env:
+        # Timezone
+        - name: TZ
+          value: "{{ pihole_timezone }}"
+
+        # Admin password
+        - name: WEBPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: pihole-secret
+              key: password
+
+        # DNS settings
+        - name: PIHOLE_DNS_
+          value: "{{ pihole_dns_servers }}"
+
+        - name: DNSSEC
+          value: "{{ pihole_dnssec }}"
+
+        # Server IP
+{% if pihole_server_ip %}
+        - name: ServerIP
+          value: "{{ pihole_server_ip }}"
+{% endif %}
+
+        # IPv6 support
+        - name: IPv6
+          value: "{{ pihole_ipv6 }"
+
+        # Web interface
+        - name: WEBTHEME
+          value: "{{ pihole_web_theme }}"
+
+        - name: TEMPERATUREUNIT
+          value: "{{ pihole_temperature_unit }}"
+
+        # Query logging
+        - name: QUERY_LOGGING
+          value: "{{ pihole_query_logging }}"
+
+        # Install web server
+        - name: INSTALL_WEB_SERVER
+          value: "{{ pihole_install_web_server }}"
+
+        # DHCP settings
+        - name: DHCP_ACTIVE
+          value: "{{ pihole_dhcp_active }}"
+
+        # Rev server settings
+        - name: REV_SERVER
+          value: "{{ pihole_rev_server }}"
+{% if pihole_rev_server == "true" %}
+        - name: REV_SERVER_DOMAIN
+          value: "{{ pihole_rev_server_domain }}"
+        - name: REV_SERVER_TARGET
+          value: "{{ pihole_rev_server_target }}"
+        - name: REV_SERVER_CIDR
+          value: "{{ pihole_rev_server_cidr }}"
+{% endif %}
+
+        # Conditional forwarding
+        - name: CONDITIONAL_FORWARDING
+          value: "{{ pihole_conditional_forwarding }}"
+{% if pihole_conditional_forwarding == "true" %}
+        - name: CONDITIONAL_FORWARDING_DOMAIN
+          value: "{{ pihole_conditional_forwarding_domain }}"
+        - name: CONDITIONAL_FORWARDING_IP
+          value: "{{ pihole_conditional_forwarding_target }}"
+        - name: CONDITIONAL_FORWARDING_REVERSE
+          value: "{{ pihole_conditional_forwarding_router }}"
+{% endif %}
+
+{% if pihole_extra_env_vars | length > 0 %}
+        # Additional environment variables
+{% for key, value in pihole_extra_env_vars.items() %}
+        - name: {{ key }}
+          value: "{{ value }}"
+{% endfor %}
+{% endif %}
+
+        ports:
+        - name: dns-tcp
+          containerPort: 53
+          protocol: TCP
+        - name: dns-udp
+          containerPort: 53
+          protocol: UDP
+        - name: http
+          containerPort: 80
+          protocol: TCP
+        - name: https
+          containerPort: 443
+          protocol: TCP
+
+        volumeMounts:
+        - name: pihole-data
+          mountPath: /etc/pihole
+        - name: dnsmasq-data
+          mountPath: /etc/dnsmasq.d
+        - name: custom-dnsmasq
+          mountPath: /etc/dnsmasq.d/02-custom.conf
+          subPath: 02-custom.conf
+
+{% if pihole_liveness_probe_enabled %}
+        livenessProbe:
+          httpGet:
+            path: /admin/
+            port: http
+          initialDelaySeconds: {{ pihole_liveness_probe_initial_delay }}
+          periodSeconds: {{ pihole_liveness_probe_period }}
+          timeoutSeconds: {{ pihole_liveness_probe_timeout }}
+          failureThreshold: {{ pihole_liveness_probe_failure_threshold }}
+{% endif %}
+
+{% if pihole_readiness_probe_enabled %}
+        readinessProbe:
+          httpGet:
+            path: /admin/
+            port: http
+          initialDelaySeconds: {{ pihole_readiness_probe_initial_delay }}
+          periodSeconds: {{ pihole_readiness_probe_period }}
+          timeoutSeconds: {{ pihole_readiness_probe_timeout }}
+          failureThreshold: {{ pihole_readiness_probe_failure_threshold }}
+{% endif %}
+
+        resources:
+          requests:
+            cpu: {{ pihole_resources_requests_cpu }}
+            memory: {{ pihole_resources_requests_memory }}
+          limits:
+            cpu: {{ pihole_resources_limits_cpu }}
+            memory: {{ pihole_resources_limits_memory }}
+
+        securityContext:
+{% if pihole_privileged %}
+          privileged: true
+{% endif %}
+          capabilities:
+            add:
+{% for cap in pihole_capabilities_add %}
+            - {{ cap }}
+{% endfor %}
+
+      volumes:
+{% if pihole_storage_enabled %}
+      - name: pihole-data
+        persistentVolumeClaim:
+          claimName: pihole-data
+      - name: dnsmasq-data
+        persistentVolumeClaim:
+          claimName: pihole-dnsmasq
+{% else %}
+      - name: pihole-data
+        emptyDir: {}
+      - name: dnsmasq-data
+        emptyDir: {}
+{% endif %}
+      - name: custom-dnsmasq
+        configMap:
+          name: pihole-custom-dnsmasq
+          defaultMode: 0644

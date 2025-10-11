@@ -1,0 +1,9 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ pihole_namespace }}
+  labels:
+{% for key, value in pihole_namespace_labels.items() %}
+    {{ key }}: "{{ value }}"
+{% endfor %}

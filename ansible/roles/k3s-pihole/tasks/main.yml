@@ -1,0 +1,247 @@
+---
+# Pi-hole Deployment Tasks for K3s Cluster
+# Deploys Pi-hole DNS server with ad-blocking to Kubernetes using MetalLB
+
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - pihole_namespace is defined
+      - pihole_admin_password is defined
+      - pihole_admin_password != "changeme123"
+    fail_msg: "Required variables are not defined or using default password"
+    success_msg: "Required variables are properly configured"
+  tags: [validation]
+
+- name: Check if K3s is installed and running
+  ansible.builtin.command: kubectl get nodes
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: k3s_status
+  changed_when: false
+  failed_when: k3s_status.rc != 0
+  tags: [validation]
+
+- name: Verify MetalLB is installed
+  ansible.builtin.command: kubectl get namespace metallb-system
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: metallb_check
+  changed_when: false
+  failed_when: metallb_check.rc != 0
+  tags: [validation]
+
+- name: Display deployment information
+  ansible.builtin.debug:
+    msg: |
+      ================================================
+      Deploying Pi-hole to K3s Cluster
+      ================================================
+      Namespace: {{ pihole_namespace }}
+      Image: {{ pihole_image }}:{{ pihole_image_tag }}
+      Service Type: {{ pihole_service_type }}
+      Storage Enabled: {{ pihole_storage_enabled }}
+      Storage Class: {{ pihole_storage_class | default('default') }}
+      DNS Servers: {{ pihole_dns_servers }}
+      ================================================
+  tags: [always]
+
+- name: Create temporary directory for manifests
+  ansible.builtin.tempfile:
+    state: directory
+    suffix: pihole
+  register: pihole_temp_dir
+  tags: [deploy]
+
+- name: Generate Pi-hole namespace manifest
+  ansible.builtin.template:
+    src: pihole-namespace.yaml.j2
+    dest: "{{ pihole_temp_dir.path }}/pihole-namespace.yaml"
+    mode: '0644'
+  tags: [deploy]
+
+- name: Generate Pi-hole PVC manifests
+  ansible.builtin.template:
+    src: pihole-pvc.yaml.j2
+    dest: "{{ pihole_temp_dir.path }}/pihole-pvc.yaml"
+    mode: '0644'
+  when: pihole_storage_enabled
+  tags: [deploy, storage]
+
+- name: Generate Pi-hole ConfigMap and Secret manifests
+  ansible.builtin.template:
+    src: pihole-configmap.yaml.j2
+    dest: "{{ pihole_temp_dir.path }}/pihole-configmap.yaml"
+    mode: '0644'
+  tags: [deploy, config]
+
+- name: Generate Pi-hole Deployment manifest
+  ansible.builtin.template:
+    src: pihole-deployment.yaml.j2
+    dest: "{{ pihole_temp_dir.path }}/pihole-deployment.yaml"
+    mode: '0644'
+  tags: [deploy]
+
+- name: Generate Pi-hole Service manifests
+  ansible.builtin.template:
+    src: pihole-service.yaml.j2
+    dest: "{{ pihole_temp_dir.path }}/pihole-service.yaml"
+    mode: '0644'
+  tags: [deploy, service]
+
+- name: Apply Pi-hole namespace
+  ansible.builtin.command: >
+    kubectl apply -f {{ pihole_temp_dir.path }}/pihole-namespace.yaml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: namespace_result
+  changed_when: "'created' in namespace_result.stdout or 'configured' in namespace_result.stdout"
+  tags: [deploy]
+
+- name: Apply Pi-hole ConfigMap and Secret
+  ansible.builtin.command: >
+    kubectl apply -f {{ pihole_temp_dir.path }}/pihole-configmap.yaml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: config_result
+  changed_when: "'created' in config_result.stdout or 'configured' in config_result.stdout"
+  tags: [deploy, config]
+
+- name: Apply Pi-hole PVC
+  ansible.builtin.command: >
+    kubectl apply -f {{ pihole_temp_dir.path }}/pihole-pvc.yaml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: pvc_result
+  changed_when: "'created' in pvc_result.stdout or 'configured' in pvc_result.stdout"
+  when: pihole_storage_enabled
+  tags: [deploy, storage]
+
+- name: Wait for PVCs to be bound
+  ansible.builtin.command: >
+    kubectl wait --for=jsonpath='{.status.phase}'=Bound pvc/pihole-data pvc/pihole-dnsmasq
+    -n {{ pihole_namespace }} --timeout=120s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: pvc_wait
+  changed_when: false
+  when: pihole_storage_enabled
+  retries: 3
+  delay: 10
+  until: pvc_wait.rc == 0
+  tags: [deploy, storage]
+
+- name: Apply Pi-hole Deployment
+  ansible.builtin.command: >
+    kubectl apply -f {{ pihole_temp_dir.path }}/pihole-deployment.yaml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: deployment_result
+  changed_when: "'created' in deployment_result.stdout or 'configured' in deployment_result.stdout"
+  tags: [deploy]
+
+- name: Apply Pi-hole Services
+  ansible.builtin.command: >
+    kubectl apply -f {{ pihole_temp_dir.path }}/pihole-service.yaml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: service_result
+  changed_when: "'created' in service_result.stdout or 'configured' in service_result.stdout"
+  tags: [deploy, service]
+
+- name: Wait for Pi-hole deployment to be ready
+  ansible.builtin.command: >
+    kubectl wait --for=condition=available deployment/pihole
+    -n {{ pihole_namespace }} --timeout=300s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: deployment_wait
+  changed_when: false
+  retries: 5
+  delay: 15
+  until: deployment_wait.rc == 0
+  tags: [deploy, verify]
+
+- name: Get Pi-hole pod status
+  ansible.builtin.command: >
+    kubectl get pods -n {{ pihole_namespace }} -l app=pihole -o wide
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: pod_status
+  changed_when: false
+  tags: [verify]
+
+- name: Get Pi-hole LoadBalancer IP addresses
+  ansible.builtin.command: >
+    kubectl get svc -n {{ pihole_namespace }} -o wide
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: service_status
+  changed_when: false
+  retries: 10
+  delay: 5
+  until: "'<pending>' not in service_status.stdout"
+  tags: [verify]
+
+- name: Extract DNS service LoadBalancer IP
+  ansible.builtin.shell: >
+    kubectl get svc pihole-dns -n {{ pihole_namespace }}
+    -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: dns_lb_ip
+  changed_when: false
+  tags: [verify]
+
+- name: Extract Web service LoadBalancer IP
+  ansible.builtin.shell: >
+    kubectl get svc pihole-web -n {{ pihole_namespace }}
+    -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: web_lb_ip
+  changed_when: false
+  tags: [verify]
+
+- name: Cleanup temporary directory
+  ansible.builtin.file:
+    path: "{{ pihole_temp_dir.path }}"
+    state: absent
+  when: pihole_temp_dir.path is defined
+  tags: [cleanup]
+
+- name: Display Pi-hole deployment summary
+  ansible.builtin.debug:
+    msg: |
+      ================================================================
+      Pi-hole Deployment Complete!
+      ================================================================
+      Namespace: {{ pihole_namespace }}
+
+      Pod Status:
+      {{ pod_status.stdout }}
+
+      Service Status:
+      {{ service_status.stdout }}
+
+      ================================================================
+      Access Information:
+      ================================================================
+      DNS Server IP: {{ dns_lb_ip.stdout }}
+      Web Interface: http://{{ web_lb_ip.stdout }}/admin
+      Admin Password: {{ pihole_admin_password }}
+
+      ================================================================
+      Next Steps:
+      ================================================================
+      1. Configure your router or devices to use {{ dns_lb_ip.stdout }} as DNS server
+      2. Access the web interface at http://{{ web_lb_ip.stdout }}/admin
+      3. Login with your admin password
+      4. Configure additional blocklists and settings as needed
+
+      To view logs:
+      kubectl logs -n {{ pihole_namespace }} -l app=pihole -f
+
+      To get service status:
+      kubectl get all -n {{ pihole_namespace }}
+      ================================================================
+  tags: [verify, always]

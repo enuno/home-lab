@@ -1,0 +1,221 @@
+---
+# Pi-hole Deployment Playbook
+# Deploys Pi-hole DNS server with ad-blocking to K3s cluster using MetalLB
+# https://github.com/pi-hole/pi-hole
+
+- name: Pre-deployment checks
+  hosts: k3s_masters[0]
+  gather_facts: true
+  become: true
+  tags: [preflight, validation]
+
+  tasks:
+    - name: Verify K3s cluster is running
+      ansible.builtin.command: kubectl get nodes
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: cluster_status
+      changed_when: false
+      failed_when: cluster_status.rc != 0
+
+    - name: Check MetalLB installation
+      ansible.builtin.command: kubectl get pods -n metallb-system
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: metallb_status
+      changed_when: false
+      failed_when: metallb_status.rc != 0
+
+    - name: Verify MetalLB IPAddressPool configuration
+      ansible.builtin.command: kubectl get ipaddresspool -n metallb-system
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: metallb_pool
+      changed_when: false
+
+    - name: Display MetalLB configuration
+      ansible.builtin.debug:
+        msg: |
+          MetalLB IP Address Pools:
+          {{ metallb_pool.stdout }}
+
+    - name: Check if Longhorn storage is available
+      ansible.builtin.command: kubectl get storageclass longhorn
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: storage_check
+      changed_when: false
+      failed_when: false
+      tags: [storage]
+
+    - name: Warn if Longhorn is not available
+      ansible.builtin.debug:
+        msg: |
+          WARNING: Longhorn storage class not found.
+          Pi-hole will use default storage class or fail if persistence is enabled.
+          Consider deploying Longhorn first or adjusting pihole_storage_class variable.
+      when: storage_check.rc != 0
+      tags: [storage]
+
+- name: Load Pi-hole configuration variables
+  hosts: k3s_masters[0]
+  gather_facts: false
+  tags: [always]
+
+  tasks:
+    - name: Load Pi-hole variables
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../group_vars/pihole.yml"
+      tags: [always]
+
+    - name: Load Pi-hole vault (if exists)
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../group_vars/pihole_vault.yml"
+      ignore_errors: true
+      tags: [always]
+
+- name: Deploy Pi-hole to K3s cluster
+  hosts: k3s_masters[0]
+  gather_facts: false
+  become: true
+  tags: [deploy, pihole]
+
+  roles:
+    - role: k3s-pihole
+
+- name: Post-deployment verification
+  hosts: k3s_masters[0]
+  gather_facts: false
+  become: true
+  tags: [verify, post-deployment]
+
+  tasks:
+    - name: Wait for Pi-hole pods to be running
+      ansible.builtin.command: >
+        kubectl get pods -n {{ pihole_namespace }} -l app=pihole
+        -o jsonpath='{.items[0].status.phase}'
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: pod_phase
+      until: pod_phase.stdout == "Running"
+      retries: 30
+      delay: 10
+      changed_when: false
+
+    - name: Get DNS LoadBalancer IP
+      ansible.builtin.command: >
+        kubectl get svc pihole-dns -n {{ pihole_namespace }}
+        -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: dns_ip
+      changed_when: false
+
+    - name: Test DNS resolution
+      ansible.builtin.command: dig @{{ dns_ip.stdout }} google.com +short
+      register: dns_test
+      changed_when: false
+      failed_when: false
+      when: dns_ip.stdout != ""
+
+    - name: Display DNS test result
+      ansible.builtin.debug:
+        msg: |
+          DNS Resolution Test:
+          Query: google.com
+          Result: {{ dns_test.stdout if dns_test.rc == 0 else 'Failed - dig may not be installed' }}
+      when: dns_ip.stdout != ""
+
+    - name: Fetch kubeconfig for local access
+      ansible.builtin.fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: "{{ playbook_dir }}/../kubeconfig/k3s-pihole-access.yaml"
+        flat: true
+      tags: [kubeconfig]
+
+    - name: Update kubeconfig server address
+      delegate_to: localhost
+      become: false
+      ansible.builtin.replace:
+        path: "{{ playbook_dir }}/../kubeconfig/k3s-pihole-access.yaml"
+        regexp: 'https://127.0.0.1:6443'
+        replace: "https://{{ ansible_default_ipv4.address }}:6443"
+      tags: [kubeconfig]
+
+    - name: Display final deployment summary
+      ansible.builtin.debug:
+        msg: |
+          ================================================================
+          Pi-hole Deployment Completed Successfully!
+          ================================================================
+
+          To manage Pi-hole using kubectl from your local machine:
+          export KUBECONFIG={{ playbook_dir }}/../kubeconfig/k3s-pihole-access.yaml
+
+          Useful commands:
+          # View Pi-hole resources
+          kubectl get all -n {{ pihole_namespace }}
+
+          # View Pi-hole logs
+          kubectl logs -n {{ pihole_namespace }} -l app=pihole -f
+
+          # Get LoadBalancer IPs
+          kubectl get svc -n {{ pihole_namespace }}
+
+          # Restart Pi-hole
+          kubectl rollout restart deployment/pihole -n {{ pihole_namespace }}
+
+          # Access Pi-hole shell
+          kubectl exec -it -n {{ pihole_namespace }} deployment/pihole -- /bin/bash
+
+          ================================================================
+
+- name: Configuration recommendations
+  hosts: localhost
+  gather_facts: false
+  tags: [recommendations]
+
+  tasks:
+    - name: Display configuration recommendations
+      ansible.builtin.debug:
+        msg: |
+          ================================================================
+          Pi-hole Configuration Recommendations
+          ================================================================
+
+          1. Router Configuration:
+             - Set your router's primary DNS to the Pi-hole DNS IP
+             - This will apply Pi-hole filtering to all devices on your network
+
+          2. Individual Device Configuration:
+             - Alternatively, configure DNS on individual devices
+             - This allows testing before network-wide deployment
+
+          3. Blocklist Configuration:
+             - Access the web interface to manage blocklists
+             - Consider adding additional blocklists from:
+               * https://firebog.net/
+               * https://github.com/blocklistproject/Lists
+
+          4. DHCP Server:
+             - Pi-hole can act as a DHCP server
+             - Enable via web interface if desired (currently disabled in K8s)
+
+          5. Monitoring:
+             - Set up Prometheus metrics collection
+             - Configure Grafana dashboards for visualization
+
+          6. Backup:
+             - Regularly backup Pi-hole configuration
+             - Use Longhorn snapshots or velero for K8s backups
+
+          7. High Availability:
+             - Consider deploying a secondary Pi-hole instance
+             - Configure both as DNS servers on your network
+
+          8. Security:
+             - Change the default admin password immediately
+             - Use strong, unique passwords
+             - Consider placing Pi-hole behind authentication proxy
+
+          ================================================================

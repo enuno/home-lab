@@ -1,0 +1,38 @@
+---
+{% if pihole_storage_enabled %}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pihole-data
+  namespace: {{ pihole_namespace }}
+  labels:
+    app: pihole
+    component: storage
+spec:
+  accessModes:
+    - {{ pihole_storage_access_mode }}
+  resources:
+    requests:
+      storage: {{ pihole_storage_size }}
+{% if pihole_storage_class %}
+  storageClassName: {{ pihole_storage_class }}
+{% endif %}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pihole-dnsmasq
+  namespace: {{ pihole_namespace }}
+  labels:
+    app: pihole
+    component: storage
+spec:
+  accessModes:
+    - {{ pihole_storage_access_mode }}
+  resources:
+    requests:
+      storage: 1Gi
+{% if pihole_storage_class %}
+  storageClassName: {{ pihole_storage_class }}
+{% endif %}
+{% endif %}

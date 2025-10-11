@@ -1,0 +1,188 @@
+---
+# Pi-hole Deployment Configuration
+# Default variables for deploying Pi-hole to K3s cluster
+
+# ============================================
+# Namespace Configuration
+# ============================================
+pihole_namespace: "pihole"
+pihole_namespace_labels:
+  name: "pihole"
+  purpose: "dns-adblock"
+
+# ============================================
+# Pi-hole Container Configuration
+# ============================================
+pihole_image: "pihole/pihole"
+pihole_image_tag: "latest"  # Consider pinning to specific version like "2024.07.0"
+pihole_image_pull_policy: "IfNotPresent"
+
+# ============================================
+# Pi-hole Admin Configuration
+# ============================================
+# Admin web interface password
+# IMPORTANT: Override this in vault or extra-vars for production
+pihole_admin_password: "changeme123"
+
+# Web interface port
+pihole_web_port: 80
+
+# ============================================
+# DNS Configuration
+# ============================================
+# Timezone for Pi-hole (affects log timestamps)
+pihole_timezone: "America/New_York"
+
+# Upstream DNS servers (semicolon-separated)
+pihole_dns_servers: "1.1.1.1;1.0.0.1"  # Cloudflare DNS
+
+# Enable DNSSEC validation
+pihole_dnssec: "true"
+
+# DNS server port
+pihole_dns_port: 53
+
+# Enable conditional forwarding
+pihole_conditional_forwarding: "false"
+pihole_conditional_forwarding_domain: ""
+pihole_conditional_forwarding_target: ""
+pihole_conditional_forwarding_router: ""
+
+# ============================================
+# Network Configuration
+# ============================================
+# Server IP (leave blank to auto-detect, but recommended to set explicitly)
+pihole_server_ip: ""
+
+# IPv6 support
+pihole_ipv6: "true"
+
+# Interface listening behavior
+# Options: "all", "local", or specific interface
+pihole_interface: "all"
+
+# DHCP server (disabled by default in K8s environment)
+pihole_dhcp_active: "false"
+
+# ============================================
+# Web Interface Configuration
+# ============================================
+# Enable web interface
+pihole_web_interface: "true"
+
+# Web interface theme (default, dark, high-contrast, etc.)
+pihole_web_theme: "default-dark"
+
+# Temperature unit (c for Celsius, f for Fahrenheit, k for Kelvin)
+pihole_temperature_unit: "f"
+
+# ============================================
+# Service Configuration
+# ============================================
+# Service type: LoadBalancer (uses MetalLB)
+pihole_service_type: "LoadBalancer"
+
+# LoadBalancer IP (optional - leave empty for auto-assignment from MetalLB pool)
+pihole_loadbalancer_ip: ""
+
+# Service annotations
+pihole_service_annotations: {}
+  # metallb.universe.tf/address-pool: "default"
+  # metallb.universe.tf/allow-shared-ip: "pihole"
+
+# ============================================
+# Storage Configuration
+# ============================================
+# Enable persistent storage
+pihole_storage_enabled: true
+
+# Storage class (use default if not specified)
+pihole_storage_class: "longhorn"
+
+# Storage size for Pi-hole data
+pihole_storage_size: "10Gi"
+
+# Access mode
+pihole_storage_access_mode: "ReadWriteOnce"
+
+# ============================================
+# Resource Limits
+# ============================================
+pihole_resources_requests_cpu: "100m"
+pihole_resources_requests_memory: "256Mi"
+pihole_resources_limits_cpu: "500m"
+pihole_resources_limits_memory: "512Mi"
+
+# ============================================
+# Security Context
+# ============================================
+# Run as privileged (required for DNS/DHCP functionality)
+pihole_privileged: true
+
+# Security capabilities
+pihole_capabilities_add:
+  - NET_ADMIN
+  - NET_RAW
+  - NET_BIND_SERVICE
+  - SYS_NICE
+  - CHOWN
+
+# ============================================
+# Health Checks
+# ============================================
+pihole_liveness_probe_enabled: true
+pihole_liveness_probe_initial_delay: 60
+pihole_liveness_probe_period: 10
+pihole_liveness_probe_timeout: 5
+pihole_liveness_probe_failure_threshold: 3
+
+pihole_readiness_probe_enabled: true
+pihole_readiness_probe_initial_delay: 30
+pihole_readiness_probe_period: 10
+pihole_readiness_probe_timeout: 5
+pihole_readiness_probe_failure_threshold: 3
+
+# ============================================
+# Advanced Configuration
+# ============================================
+# Custom DNS records (A records)
+pihole_custom_dns_records: []
+  # - domain: "homelab.local"
+  #   ip: "192.168.1.100"
+
+# Custom CNAME records
+pihole_custom_cname_records: []
+  # - domain: "nas.homelab.local"
+  #   target: "truenas.homelab.local"
+
+# Additional environment variables
+pihole_extra_env_vars: {}
+  # DNSMASQ_LISTENING: "all"
+  # PIHOLE_DNS_: "8.8.8.8;8.8.4.4"
+
+# Rev server (reverse DNS) configuration
+pihole_rev_server: "false"
+pihole_rev_server_domain: ""
+pihole_rev_server_target: ""
+pihole_rev_server_cidr: ""
+
+# Query logging
+pihole_query_logging: "true"
+
+# Install web server (lighttpd)
+pihole_install_web_server: "true"
+
+# ============================================
+# Blocklist Configuration
+# ============================================
+# Default blocklists are included in Pi-hole
+# Additional custom blocklists can be added via web interface after deployment
+
+# ============================================
+# Deployment Strategy
+# ============================================
+# Replica count (typically 1 for Pi-hole, multiple replicas not recommended)
+pihole_replicas: 1
+
+# Update strategy
+pihole_update_strategy: "Recreate"  # Use Recreate to avoid port conflicts

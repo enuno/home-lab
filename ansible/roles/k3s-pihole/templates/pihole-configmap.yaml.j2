@@ -1,0 +1,37 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pihole-custom-dnsmasq
+  namespace: {{ pihole_namespace }}
+  labels:
+    app: pihole
+data:
+  02-custom.conf: |
+    # Custom dnsmasq configuration
+    # Add custom DNS records here
+{% if pihole_custom_dns_records | length > 0 %}
+
+    # Custom A records
+{% for record in pihole_custom_dns_records %}
+    address=/{{ record.domain }}/{{ record.ip }}
+{% endfor %}
+{% endif %}
+{% if pihole_custom_cname_records | length > 0 %}
+
+    # Custom CNAME records
+{% for record in pihole_custom_cname_records %}
+    cname={{ record.domain }},{{ record.target }}
+{% endfor %}
+{% endif %}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pihole-secret
+  namespace: {{ pihole_namespace }}
+  labels:
+    app: pihole
+type: Opaque
+stringData:
+  password: "{{ pihole_admin_password }}"
