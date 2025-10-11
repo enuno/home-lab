@@ -18,7 +18,7 @@ pihole_image_pull_policy: "IfNotPresent"
 # DNS Configuration
 # ============================================
 # Timezone (adjust to your location)
-pihole_timezone: "America/New_York"
+pihole_timezone: "America/Denver"
 
 # Upstream DNS servers (semicolon-separated)
 # Options:
@@ -26,7 +26,7 @@ pihole_timezone: "America/New_York"
 # - Google: 8.8.8.8;8.8.4.4
 # - Quad9: 9.9.9.9;149.112.112.112
 # - OpenDNS: 208.67.222.222;208.67.220.220
-pihole_dns_servers: "1.1.1.1;1.0.0.1"
+pihole_dns_servers: "9.9.9.9;149.112.112.112"
 
 # Enable DNSSEC validation
 pihole_dnssec: "true"
@@ -52,7 +52,7 @@ pihole_temperature_unit: "f"
 pihole_server_ip: ""
 
 # Service type - LoadBalancer uses MetalLB
-pihole_service_type: "LoadBalancer"
+pihole_service_type: "MetalLB"
 
 # LoadBalancer IP (optional - leave empty for auto-assignment)
 # If you want a specific IP from MetalLB pool, set it here
@@ -63,14 +63,14 @@ pihole_loadbalancer_ip: ""
 pihole_service_annotations:
   metallb.universe.tf/address-pool: "default"
   # Allow DNS and Web to share the same IP (optional)
-  # metallb.universe.tf/allow-shared-ip: "pihole-svc"
+  metallb.universe.tf/allow-shared-ip: "pihole-svc"
 
 # ============================================
 # Storage Configuration
 # ============================================
 pihole_storage_enabled: true
 pihole_storage_class: "longhorn"
-pihole_storage_size: "10Gi"
+pihole_storage_size: "5Gi"
 pihole_storage_access_mode: "ReadWriteOnce"
 
 # ============================================
@@ -86,16 +86,16 @@ pihole_resources_limits_memory: "512Mi"
 # Advanced DNS Configuration
 # ============================================
 # Conditional forwarding (for local domain resolution)
-pihole_conditional_forwarding: "false"
-# pihole_conditional_forwarding_domain: "home.local"
-# pihole_conditional_forwarding_target: "192.168.1.1"
-# pihole_conditional_forwarding_router: "192.168.1.1"
+pihole_conditional_forwarding: "true"
+pihole_conditional_forwarding_domain: "lab.hashgrid.net"
+pihole_conditional_forwarding_target: "10.2.0.1"
+pihole_conditional_forwarding_router: "10.2.0.1"
 
 # Reverse DNS server
-pihole_rev_server: "false"
-# pihole_rev_server_domain: "home.local"
-# pihole_rev_server_target: "192.168.1.1"
-# pihole_rev_server_cidr: "192.168.1.0/24"
+pihole_rev_server: "true"
+pihole_rev_server_domain: "lab.hashgrid.net"
+pihole_rev_server_target: "10.2.0.1"
+pihole_rev_server_cidr: "10.2.0.0/24"
 
 # Query logging
 pihole_query_logging: "true"
