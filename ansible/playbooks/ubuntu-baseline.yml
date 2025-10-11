@@ -14,6 +14,45 @@
         cache_valid_time: 3600
       tags: [packages]
 
+    - name: Create elvis user with sudo privileges
+      ansible.builtin.user:
+        name: elvis
+        shell: /bin/bash
+        groups: sudo
+        append: true
+        create_home: true
+        state: present
+      tags: [users]
+
+    - name: Configure passwordless sudo for elvis user
+      ansible.builtin.lineinfile:
+        path: /etc/sudoers.d/elvis
+        line: 'elvis ALL=(ALL) NOPASSWD:ALL'
+        create: true
+        mode: '0440'
+        validate: 'visudo -cf %s'
+      tags: [users]
+
+    - name: Create .ssh directory for elvis user
+      ansible.builtin.file:
+        path: /home/elvis/.ssh
+        state: directory
+        owner: elvis
+        group: elvis
+        mode: '0700'
+      tags: [users, ssh]
+
+    - name: Add SSH public keys for elvis user
+      ansible.builtin.authorized_key:
+        user: elvis
+        state: present
+        key: "{{ item }}"
+      loop:
+        - "ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBJUnLxKKSdmsHZ73UVcZvNDWatojkrZoA7lR5Z9g86hrCixTsmLtvELi8OalgTmrOKJkR4gFxya78O1v6ERdzw4= macbookpro-secure@secretive.Elvis's-MacBook-Pro-(110).local"
+        - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCvhGRFU8sXzUiyVLE8R+suY+siLvGeKhInSb9O8ViiakVFwyifPyA6zPQ39dQXSnTmEm5kaA0/KrziJvvMyjJsyGEEHYyk9m+dQJNlmgjD8KgvC5YW8IqPzy2uMvCHcyMKNN2WR561R9BsmOy1IJ9Uks2C07puhGBNjIS4Mqy48+eqY+OaTj0PvCGhO4FKvnRDBueoa3jdPHncfb0/qQ4P8I2VatXuau/ohNi5X0lp9UVceui7cBsvqZoe84AxKqJK6fTQGi1RSDymc/FUTG+xFtHLoew+/eSWihbQSfknWNUGxTfmuluUZvdOYGDoqY6TpJOyItd11W/BsZhdV+NLiDj0ZU6zrAJsZtvK/QXrI6AakmEb0EyB6vjhbkDWErzrGFfWnpOGFSnamALW/UOGbXvLAX+p22xmmszuw+fmD/aSCt7MWQfaMamKB+ZHQuyc5Yholc8Hy+Ny265G3u83vrff71hE7bCXCh5HlT9Q8FpIvu7l872EOGzdO6bA7O8= elvis@MacBookPro.homelab"
+        - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMrs5MDrb9J15wMv2HpkiUT47Ix4TKNUs4rnampxcWjx elvis@kali"
+      tags: [users, ssh]
+
     - name: Install baseline packages
       ansible.builtin.apt:
         name:
@@ -72,6 +111,11 @@
           ============================================
           Ubuntu Baseline Configuration Complete
           ============================================
+          User Configuration:
+            - elvis user created with passwordless sudo
+            - 3 SSH public keys added for elvis user
+            - SSH key-based authentication enabled
+
           Packages Installed:
             - fail2ban (intrusion prevention)
             - nmap (network scanning)
@@ -88,5 +132,6 @@
             - UFW firewall enabled
             - SSH access allowed
             - Default incoming policy: DENY
+            - Passwordless sudo for elvis (administrative access)
           ============================================
       tags: [always]
