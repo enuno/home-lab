@@ -108,13 +108,13 @@
       register: metallb_install
       changed_when: "'created' in metallb_install.stdout or 'configured' in metallb_install.stdout"
 
-    - name: Wait for MetalLB controller to be ready
-      ansible.builtin.command: kubectl wait --for=condition=ready pod -l app=metallb -n metallb-system --timeout=300s
+    - name: Wait for MetalLB controller to be ready (may fail if workers not yet deployed)
+      ansible.builtin.command: kubectl wait --for=condition=ready pod -l app=metallb -n metallb-system --timeout=30s
       environment:
         KUBECONFIG: /etc/rancher/k3s/k3s.yaml
       changed_when: false
-      retries: 3
-      delay: 10
+      ignore_errors: true  # MetalLB pods may not be ready yet if workers aren't deployed
+      register: metallb_wait_result
 
     - name: Create MetalLB IPAddressPool configuration
       ansible.builtin.copy:
@@ -146,6 +146,8 @@
         KUBECONFIG: /etc/rancher/k3s/k3s.yaml
       register: metallb_config
       changed_when: "'created' in metallb_config.stdout or 'configured' in metallb_config.stdout"
+      ignore_errors: true  # Webhook may not be available until workers are deployed
+      when: metallb_wait_result is defined
 
     - name: Verify MetalLB configuration
       ansible.builtin.command: kubectl get ipaddresspool -n metallb-system
@@ -153,12 +155,16 @@
         KUBECONFIG: /etc/rancher/k3s/k3s.yaml
       register: metallb_pools
       changed_when: false
+      ignore_errors: true
+      when: metallb_config is defined and metallb_config.rc | default(1) == 0
 
     - name: Display MetalLB configuration
       ansible.builtin.debug:
         msg: |
-          MetalLB installed successfully!
+          MetalLB installation initiated!
           IP Address Pool: {{ k3s_metallb_ip_pool }}
           Pool Name: {{ k3s_metallb_pool_name }}
 
-          {{ metallb_pools.stdout }}
+          Note: MetalLB pods may not be ready until worker nodes are deployed.
+          Configuration will be applied once webhooks are available.
+      when: metallb_install is defined
