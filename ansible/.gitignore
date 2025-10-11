@@ -6,6 +6,9 @@
 kubeconfig/*.yaml
 kubeconfig/*.yml
 
+# Ansible vault encrypted files
+ansible/group_vars/pihole_vault.yml
+
 # Ansible retry files
 *.retry
 
