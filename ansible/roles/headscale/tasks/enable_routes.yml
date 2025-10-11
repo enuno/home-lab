@@ -1,0 +1,20 @@
+---
+- name: Enable routes for node
+  ansible.builtin.command:
+    cmd: 'headscale routes enable -i {{ item.id }} -r {{ item.routes }}'
+  loop: '{{ headscale_enable_routes }}'
+  loop_control:
+    label: '{{ item.comment | default(item) }}'
+  register: enable_routes_result
+  changed_when: enable_routes_result.stdout == ''
+  when: not ansible_check_mode
+
+- name: Enable exit nodes
+  ansible.builtin.command:
+    cmd: 'headscale routes enable -i {{ item.id }} -r 0.0.0.0/0,::/0'
+  loop: '{{ headscale_exit_nodes }}'
+  loop_control:
+    label: '{{ item.comment | default(item) }}'
+  register: enable_exit_nodes_result
+  changed_when: enable_exit_nodes_result.stdout == ''
+  when: not ansible_check_mode

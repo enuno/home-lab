@@ -1,0 +1,73 @@
+---
+- name: Create headscale user group
+  ansible.builtin.group:
+    name: '{{ headscale_user_group }}'
+    gid: '{{ headscale_user_gid }}'
+    system: true
+    state: present
+
+- name: Create headscale user
+  ansible.builtin.user:
+    name: '{{ headscale_user_name }}'
+    uid: '{{ headscale_user_uid }}'
+    group: '{{ headscale_user_group }}'
+    shell: /bin/false
+    system: true
+    create_home: false
+
+- name: Get release checksums
+  ansible.builtin.uri:
+    url: 'https://github.com/juanfont/headscale/releases/download/v{{ headscale_version }}/checksums.txt'
+    return_content: true
+  register: checksums_file
+
+- name: Parse checksums
+  ansible.builtin.set_fact:
+    headscale_checksums: '{{ checksums_file.content | split | reverse }}'
+
+- name: Parse checksums (cont.)
+  ansible.builtin.set_fact:
+    headscale_checksums: '{{ dict(headscale_checksums[::2] | zip_longest(headscale_checksums[1::2])) }}'
+
+- name: Download headscale binary
+  ansible.builtin.get_url:
+    url: 'https://github.com/juanfont/headscale/releases/download/v{{ headscale_version }}/{{ headscale_release_full }}'
+    dest: '{{ headscale_binary_path }}'
+    checksum: 'sha256:{{ headscale_checksums[headscale_release_full] }}'
+    owner: '{{ headscale_user_uid }}'
+    group: '{{ headscale_user_gid }}'
+    mode: '0770'
+  notify: restart headscale
+
+- name: Ensure headscale paths exist
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: directory
+    owner: '{{ headscale_user_name }}'
+    group: '{{ headscale_user_group }}'
+    mode: '0755'
+  loop: '{{ headscale_directories }}'
+
+- name: Ensure sqlite exists
+  ansible.builtin.file:
+    path: '{{ headscale_var_data_dir }}/db.sqlite'
+    state: touch
+    owner: '{{ headscale_user_uid }}'
+    group: '{{ headscale_user_gid }}'
+    mode: '0600'
+    modification_time: preserve
+    access_time: preserve
+
+- name: Copy systemd unit file
+  ansible.builtin.template:
+    src: 'etc/systemd/system/headscale.service.j2'
+    dest: '/etc/systemd/system/headscale.service'
+    owner: '{{ headscale_user_uid }}'
+    group: '{{ headscale_user_gid }}'
+    mode: '0600'
+  notify: restart headscale
+
+- name: Enable headscale service
+  ansible.builtin.systemd_service:
+    name: headscale
+    enabled: true
