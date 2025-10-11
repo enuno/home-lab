@@ -1,0 +1,110 @@
+---
+# K3s Firewall Configuration Tasks
+# Configures UFW for K3s cluster communication
+
+- name: Install UFW if not present
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+  tags: [firewall]
+
+- name: Configure UFW - Allow SSH
+  community.general.ufw:
+    rule: allow
+    name: OpenSSH
+  tags: [firewall]
+
+# K3s Master Node Ports
+- name: Configure UFW - Allow K3s API Server (6443/tcp)
+  community.general.ufw:
+    rule: allow
+    port: '6443'
+    proto: tcp
+  when: "'k3s_masters' in group_names"
+  tags: [firewall, k3s]
+
+- name: Configure UFW - Allow K3s metrics server (10250/tcp)
+  community.general.ufw:
+    rule: allow
+    port: '10250'
+    proto: tcp
+  tags: [firewall, k3s]
+
+# Flannel VXLAN
+- name: Configure UFW - Allow Flannel VXLAN (8472/udp)
+  community.general.ufw:
+    rule: allow
+    port: '8472'
+    proto: udp
+  tags: [firewall, k3s, flannel]
+
+# Kubelet metrics
+- name: Configure UFW - Allow Kubelet metrics (10250/tcp)
+  community.general.ufw:
+    rule: allow
+    port: '10250'
+    proto: tcp
+  tags: [firewall, k3s]
+
+# K3s embedded etcd (master nodes only)
+- name: Configure UFW - Allow etcd client (2379-2380/tcp)
+  community.general.ufw:
+    rule: allow
+    port: '2379:2380'
+    proto: tcp
+  when: "'k3s_masters' in group_names"
+  tags: [firewall, k3s, etcd]
+
+# NodePort services range
+- name: Configure UFW - Allow NodePort services (30000-32767/tcp)
+  community.general.ufw:
+    rule: allow
+    port: '30000:32767'
+    proto: tcp
+  tags: [firewall, k3s, nodeport]
+
+- name: Configure UFW - Allow NodePort services (30000-32767/udp)
+  community.general.ufw:
+    rule: allow
+    port: '30000:32767'
+    proto: udp
+  tags: [firewall, k3s, nodeport]
+
+# Allow traffic from cluster CIDR
+- name: Configure UFW - Allow traffic from Pod CIDR
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ k3s_cluster_cidr }}"
+  tags: [firewall, k3s]
+
+- name: Configure UFW - Allow traffic from Service CIDR
+  community.general.ufw:
+    rule: allow
+    from_ip: "{{ k3s_service_cidr }}"
+  tags: [firewall, k3s]
+
+# Tailscale
+- name: Configure UFW - Allow Tailscale (41641/udp)
+  community.general.ufw:
+    rule: allow
+    port: '41641'
+    proto: udp
+  tags: [firewall, tailscale]
+
+- name: Configure UFW - Enable firewall
+  community.general.ufw:
+    state: enabled
+    policy: deny
+    direction: incoming
+  tags: [firewall]
+
+- name: Display UFW status
+  ansible.builtin.command: ufw status verbose
+  register: ufw_status
+  changed_when: false
+  tags: [firewall]
+
+- name: Show UFW configuration
+  ansible.builtin.debug:
+    var: ufw_status.stdout_lines
+  tags: [firewall]

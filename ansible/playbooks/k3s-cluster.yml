@@ -85,6 +85,45 @@
   roles:
     - role: k3s-worker
 
+- name: Configure firewall for K3s cluster
+  hosts: k3s_cluster
+  gather_facts: true
+  become: true
+  tags: [firewall, security]
+
+  pre_tasks:
+    - name: Load group variables explicitly
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../group_vars/k3s_cluster.yml"
+      tags: [always]
+
+  roles:
+    - role: k3s-firewall
+
+- name: Install Helm on master nodes
+  hosts: k3s_masters
+  gather_facts: true
+  become: true
+  tags: [helm, tools]
+
+  roles:
+    - role: k3s-helm
+
+- name: Install and configure Tailscale
+  hosts: k3s_cluster
+  gather_facts: true
+  become: true
+  tags: [tailscale, vpn]
+
+  pre_tasks:
+    - name: Load vault variables
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../group_vars/k3s_cluster_vault.yml"
+      tags: [always]
+
+  roles:
+    - role: k3s-tailscale
+
 - name: Configure kubectl for local access
   hosts: k3s_masters[0]
   gather_facts: false

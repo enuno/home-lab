@@ -1,0 +1,67 @@
+---
+# Helm Installation Tasks
+# Installs Helm package manager for Kubernetes
+
+- name: Check if Helm is already installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/helm
+  register: helm_binary
+  tags: [helm]
+
+- name: Get installed Helm version
+  ansible.builtin.command: /usr/local/bin/helm version --short
+  register: helm_version_output
+  when: helm_binary.stat.exists
+  changed_when: false
+  failed_when: false
+  tags: [helm]
+
+- name: Install Helm
+  when: not helm_binary.stat.exists or helm_version_output.rc != 0
+  tags: [helm]
+  block:
+    - name: Download Helm installation script
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+        dest: /tmp/get_helm.sh
+        mode: '0700'
+
+    - name: Run Helm installation script
+      ansible.builtin.command: /tmp/get_helm.sh
+      environment:
+        DESIRED_VERSION: v3.16.3
+      changed_when: true
+
+    - name: Remove Helm installation script
+      ansible.builtin.file:
+        path: /tmp/get_helm.sh
+        state: absent
+
+- name: Verify Helm installation
+  ansible.builtin.command: helm version --short
+  register: helm_verify
+  changed_when: false
+  tags: [helm]
+
+- name: Add Helm stable repository
+  ansible.builtin.command: helm repo add stable https://charts.helm.sh/stable
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: helm_repo_add
+  changed_when: "'already exists' not in helm_repo_add.stderr"
+  failed_when: helm_repo_add.rc != 0 and 'already exists' not in helm_repo_add.stderr
+  when: "'k3s_masters' in group_names"
+  tags: [helm]
+
+- name: Update Helm repositories
+  ansible.builtin.command: helm repo update
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+  when: "'k3s_masters' in group_names"
+  tags: [helm]
+
+- name: Display Helm version
+  ansible.builtin.debug:
+    msg: "Helm installed: {{ helm_verify.stdout }}"
+  tags: [helm]
