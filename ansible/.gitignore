@@ -1,0 +1,30 @@
+# Ansible vault password files
+.vault_password
+*.vault_pass
+
+# Kubeconfig files (contains sensitive cluster access credentials)
+kubeconfig/*.yaml
+kubeconfig/*.yml
+
+# Ansible retry files
+*.retry
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment files
+.env
+.env.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

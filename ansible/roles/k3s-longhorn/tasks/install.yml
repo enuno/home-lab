@@ -1,0 +1,157 @@
+---
+# Longhorn Installation Tasks
+# Deploys Longhorn using Helm
+
+- name: Longhorn installation (run on first master only)
+  when: inventory_hostname == groups['k3s_masters'][0]
+  tags: [longhorn, install]
+  block:
+    - name: Create Longhorn namespace
+      kubernetes.core.k8s:
+        name: "{{ longhorn_namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+
+    - name: Add Longhorn Helm repository
+      kubernetes.core.helm_repository:
+        name: "{{ longhorn_helm_repo_name }}"
+        repo_url: "{{ longhorn_helm_repo_url }}"
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+
+    - name: Update Helm repositories
+      ansible.builtin.command: helm repo update
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      changed_when: false
+
+    - name: Create Longhorn Helm values file
+      ansible.builtin.template:
+        src: longhorn-values.yaml.j2
+        dest: /tmp/longhorn-values.yaml
+        mode: '0644'
+
+    - name: Check if Longhorn is already installed
+      kubernetes.core.helm_info:
+        name: "{{ longhorn_helm_chart_name }}"
+        release_namespace: "{{ longhorn_namespace }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: longhorn_release
+      failed_when: false
+
+    - name: Install Longhorn via Helm
+      kubernetes.core.helm:
+        name: "{{ longhorn_helm_chart_name }}"
+        chart_ref: "{{ longhorn_helm_repo_name }}/{{ longhorn_helm_chart_name }}"
+        chart_version: "{{ longhorn_chart_version }}"
+        release_namespace: "{{ longhorn_namespace }}"
+        values_files:
+          - /tmp/longhorn-values.yaml
+        create_namespace: false
+        wait: true
+        wait_timeout: 10m
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: longhorn_install
+
+    - name: Wait for Longhorn manager pods to be ready
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ longhorn_namespace }}"
+        label_selectors:
+          - app=longhorn-manager
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: longhorn_manager_pods
+      until: >
+        longhorn_manager_pods.resources | length > 0 and
+        longhorn_manager_pods.resources |
+        selectattr('status.phase', 'equalto', 'Running') |
+        list | length == longhorn_manager_pods.resources | length
+      retries: 30
+      delay: 10
+
+    - name: Wait for Longhorn driver pods to be ready
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ longhorn_namespace }}"
+        label_selectors:
+          - app=longhorn-driver-deployer
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: longhorn_driver_pods
+      until: >
+        longhorn_driver_pods.resources | length > 0 and
+        longhorn_driver_pods.resources |
+        selectattr('status.phase', 'equalto', 'Running') |
+        list | length == longhorn_driver_pods.resources | length
+      retries: 30
+      delay: 10
+
+    - name: Verify Longhorn storage class creation
+      kubernetes.core.k8s_info:
+        api_version: storage.k8s.io/v1
+        kind: StorageClass
+        name: "{{ longhorn_storage_class_name }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: longhorn_sc
+      until: longhorn_sc.resources | length > 0
+      retries: 10
+      delay: 5
+
+    - name: Get Longhorn deployment status
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ longhorn_namespace }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: longhorn_pods
+
+    - name: Display Longhorn pod status
+      ansible.builtin.debug:
+        msg: |
+          Longhorn Pods:
+          {% for pod in longhorn_pods.resources %}
+          - {{ pod.metadata.name }}: {{ pod.status.phase }}
+          {% endfor %}
+
+    - name: Get Longhorn UI service information
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Service
+        name: longhorn-frontend
+        namespace: "{{ longhorn_namespace }}"
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: longhorn_ui_service
+
+    - name: Display Longhorn UI access information
+      ansible.builtin.debug:
+        msg: |
+          ============================================
+          Longhorn Installation Complete!
+          ============================================
+          Version: {{ longhorn_version }}
+          Namespace: {{ longhorn_namespace }}
+          Storage Class: {{ longhorn_storage_class_name }}
+
+          Access Longhorn UI:
+          {% if longhorn_ui_service_type == 'NodePort' %}
+          NodePort: http://{{ ansible_default_ipv4.address }}:{{ longhorn_ui_service.resources[0].spec.ports[0].nodePort }}
+          {% elif longhorn_ui_service_type == 'LoadBalancer' %}
+          LoadBalancer: http://{{ longhorn_ui_service.resources[0].status.loadBalancer.ingress[0].ip }}
+          {% else %}
+          Use kubectl port-forward:
+          kubectl port-forward -n {{ longhorn_namespace }} svc/longhorn-frontend 8080:80
+          Then access: http://localhost:8080
+          {% endif %}
+
+          Verify installation:
+          kubectl get pods -n {{ longhorn_namespace }}
+          kubectl get storageclass
+          ============================================
+
+    - name: Clean up temporary values file
+      ansible.builtin.file:
+        path: /tmp/longhorn-values.yaml
+        state: absent

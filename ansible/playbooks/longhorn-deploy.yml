@@ -1,0 +1,260 @@
+---
+# Longhorn Storage Deployment Playbook
+# Deploys Longhorn distributed block storage to K3s cluster
+# https://longhorn.io/docs/
+
+- name: Pre-flight checks for Longhorn deployment
+  hosts: k3s_cluster
+  gather_facts: true
+  become: true
+  tags: [preflight, longhorn]
+
+  tasks:
+    - name: Check K3s cluster is running
+      ansible.builtin.systemd:
+        name: k3s
+      register: k3s_service
+      failed_when: false
+      when: "'k3s_masters' in group_names"
+
+    - name: Check K3s agent is running
+      ansible.builtin.systemd:
+        name: k3s-agent
+      register: k3s_agent_service
+      failed_when: false
+      when: "'k3s_workers' in group_names"
+
+    - name: Verify K3s master is operational
+      ansible.builtin.assert:
+        that:
+          - k3s_service.status.ActiveState == 'active'
+        fail_msg: "K3s service is not running. Please ensure K3s cluster is deployed first."
+        success_msg: "K3s service is running"
+      when: "'k3s_masters' in group_names and k3s_service is defined"
+
+    - name: Verify K3s worker is operational
+      ansible.builtin.assert:
+        that:
+          - k3s_agent_service.status.ActiveState == 'active'
+        fail_msg: "K3s agent service is not running. Please ensure K3s cluster is deployed first."
+        success_msg: "K3s agent service is running"
+      when: "'k3s_workers' in group_names and k3s_agent_service is defined"
+
+    - name: Check minimum disk space
+      ansible.builtin.shell: |
+        if [ -d /var/lib/longhorn ]; then
+          df -BG /var/lib/longhorn | tail -1 | awk '{print $4}' | sed 's/G//'
+        else
+          df -BG / | tail -1 | awk '{print $4}' | sed 's/G//'
+        fi
+      register: disk_space_check
+      changed_when: false
+
+    - name: Verify sufficient disk space
+      ansible.builtin.assert:
+        that:
+          - disk_space_check.stdout | int >= 10
+        fail_msg: "Insufficient disk space. At least 10GB required, found {{ disk_space_check.stdout }}GB"
+        success_msg: "Sufficient disk space available: {{ disk_space_check.stdout }}GB"
+
+- name: Install Longhorn prerequisites on all cluster nodes
+  hosts: k3s_cluster
+  gather_facts: true
+  become: true
+  tags: [prerequisites, longhorn]
+
+  pre_tasks:
+    - name: Load group variables explicitly
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../group_vars/k3s_cluster.yml"
+      tags: [always]
+
+    - name: Install Python kubernetes library on master nodes (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name:
+          - python3-kubernetes
+          - python3-yaml
+          - python3-jsonpatch
+        state: present
+        update_cache: true
+      when: "'k3s_masters' in group_names and ansible_os_family == 'Debian'"
+
+  roles:
+    - role: k3s-longhorn
+      tags: [prerequisites]
+
+- name: Deploy Longhorn to K3s cluster
+  hosts: k3s_masters
+  gather_facts: true
+  become: true
+  tags: [install, longhorn]
+
+  pre_tasks:
+    - name: Load group variables explicitly
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../group_vars/k3s_cluster.yml"
+      tags: [always]
+
+    - name: Verify Helm is installed
+      ansible.builtin.command: helm version --short
+      register: helm_check
+      changed_when: false
+      failed_when: helm_check.rc != 0
+      when: inventory_hostname == groups['k3s_masters'][0]
+
+    - name: Verify kubectl is available
+      ansible.builtin.command: kubectl version --client
+      register: kubectl_check
+      changed_when: false
+      failed_when: kubectl_check.rc != 0
+      when: inventory_hostname == groups['k3s_masters'][0]
+
+  roles:
+    - role: k3s-longhorn
+      tags: [install]
+
+- name: Post-deployment verification and configuration
+  hosts: k3s_masters[0]
+  gather_facts: false
+  become: true
+  tags: [verify, post-deployment]
+
+  pre_tasks:
+    - name: Load group variables explicitly
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../group_vars/k3s_cluster.yml"
+      tags: [always]
+
+    - name: Ensure Python kubernetes library is installed
+      ansible.builtin.apt:
+        name:
+          - python3-kubernetes
+          - python3-yaml
+          - python3-jsonpatch
+        state: present
+      when: ansible_os_family == 'Debian'
+
+  tasks:
+    - name: Wait for Longhorn to be fully operational
+      ansible.builtin.pause:
+        seconds: 30
+        prompt: "Waiting for Longhorn to stabilize..."
+
+    - name: Verify all Longhorn pods are running
+      ansible.builtin.command: |
+        kubectl get pods -n longhorn-system -o jsonpath='{.items[*].status.phase}'
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: longhorn_pods_status
+      changed_when: false
+      failed_when: "'Running' not in longhorn_pods_status.stdout"
+
+    - name: Get Longhorn nodes status
+      ansible.builtin.command: |
+        kubectl get nodes.longhorn.io -n longhorn-system -o wide
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: longhorn_nodes
+      changed_when: false
+      failed_when: false
+
+    - name: Get Longhorn storage classes
+      ansible.builtin.command: kubectl get storageclass
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: storage_classes
+      changed_when: false
+
+    - name: Create test PVC for Longhorn validation
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: longhorn-test-pvc
+            namespace: default
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            storageClassName: longhorn
+            resources:
+              requests:
+                storage: 1Gi
+
+    - name: Wait for test PVC to be bound
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: PersistentVolumeClaim
+        name: longhorn-test-pvc
+        namespace: default
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+      register: test_pvc
+      until: test_pvc.resources[0].status.phase == 'Bound'
+      retries: 20
+      delay: 5
+
+    - name: Clean up test PVC
+      kubernetes.core.k8s:
+        state: absent
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        api_version: v1
+        kind: PersistentVolumeClaim
+        name: longhorn-test-pvc
+        namespace: default
+
+    - name: Get Longhorn UI service details
+      ansible.builtin.command: |
+        kubectl get svc longhorn-frontend -n longhorn-system -o jsonpath='{.spec.type}:{.spec.ports[0].port}'
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: longhorn_ui_service
+      changed_when: false
+
+    - name: Display deployment summary
+      ansible.builtin.debug:
+        msg: |
+          ============================================
+          Longhorn Deployment Complete!
+          ============================================
+          Cluster: {{ k3s_cluster_name }}
+          Version: {{ longhorn_version | default('v1.7.2') }}
+          Namespace: longhorn-system
+
+          Storage Classes:
+          {{ storage_classes.stdout }}
+
+          Longhorn Nodes:
+          {{ longhorn_nodes.stdout }}
+
+          Longhorn UI Access:
+          Service Type: {{ longhorn_ui_service.stdout }}
+
+          To access the Longhorn UI, run:
+          kubectl port-forward -n longhorn-system svc/longhorn-frontend 8080:80
+
+          Then open: http://localhost:8080
+
+          To test Longhorn storage, create a PVC:
+          kubectl apply -f - <<EOF
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: my-pvc
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            storageClassName: longhorn
+            resources:
+              requests:
+                storage: 5Gi
+          EOF
+
+          Monitor Longhorn:
+          kubectl get pods -n longhorn-system
+          kubectl get pvc -A
+          kubectl get pv
+
+          Documentation: https://longhorn.io/docs/
+          ============================================

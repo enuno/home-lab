@@ -1,0 +1,27 @@
+---
+# Longhorn Main Tasks
+# Orchestrates Longhorn deployment on K3s cluster
+
+- name: Display Longhorn deployment information
+  ansible.builtin.debug:
+    msg: |
+      Starting Longhorn deployment...
+      Version: {{ longhorn_version }}
+      Namespace: {{ longhorn_namespace }}
+      Data Path: {{ longhorn_default_data_path }}
+      Replica Count: {{ longhorn_default_replica_count }}
+  run_once: true
+  tags: [longhorn]
+
+- name: Include prerequisites tasks
+  ansible.builtin.include_tasks: prerequisites.yml
+  tags: [longhorn, prerequisites]
+
+- name: Include installation tasks
+  ansible.builtin.include_tasks: install.yml
+  tags: [longhorn, install]
+
+- name: Include ingress configuration tasks
+  ansible.builtin.include_tasks: ingress.yml
+  when: longhorn_ingress_enabled
+  tags: [longhorn, ingress]

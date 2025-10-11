@@ -1,0 +1,67 @@
+---
+# Longhorn Ingress Configuration Tasks
+# Creates Ingress resource for Longhorn UI
+
+- name: Configure Longhorn Ingress
+  when: inventory_hostname == groups['k3s_masters'][0]
+  tags: [longhorn, ingress]
+  block:
+    - name: Create Longhorn Ingress resource (without TLS)
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: longhorn-ingress
+            namespace: "{{ longhorn_namespace }}"
+            annotations: "{{ longhorn_ingress_annotations }}"
+          spec:
+            rules:
+              - host: "{{ longhorn_ingress_host }}"
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: longhorn-frontend
+                          port:
+                            number: 80
+      when: not longhorn_ingress_tls_enabled
+
+    - name: Create Longhorn Ingress resource (with TLS)
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: /etc/rancher/k3s/k3s.yaml
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: longhorn-ingress
+            namespace: "{{ longhorn_namespace }}"
+            annotations: "{{ longhorn_ingress_annotations }}"
+          spec:
+            rules:
+              - host: "{{ longhorn_ingress_host }}"
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: longhorn-frontend
+                          port:
+                            number: 80
+            tls:
+              - hosts:
+                  - "{{ longhorn_ingress_host }}"
+                secretName: longhorn-tls
+      when: longhorn_ingress_tls_enabled
+
+    - name: Display Ingress information
+      ansible.builtin.debug:
+        msg: >-
+          Longhorn Ingress created successfully!
+          Access URL: {{ 'https' if longhorn_ingress_tls_enabled else 'http' }}://{{ longhorn_ingress_host }}

@@ -191,7 +191,51 @@ k3s_kubeconfig_dir: "{{ playbook_dir }}/../kubeconfig"
 # MetalLB Configuration
 # ============================================
 # Install and configure MetalLB for bare-metal load balancing
-k3s_install_metallb: false
+k3s_install_metallb: true
 k3s_metallb_version: "v0.14.9"
 k3s_metallb_ip_pool: "10.41.0.0/16"
 k3s_metallb_pool_name: "default"
+
+# ============================================
+# Tailscale Configuration
+# ============================================
+# Tailscale auth key stored in vault (group_vars/k3s_cluster_vault.yml)
+# tailscale_auth_key defined in vault file
+
+# ============================================
+# Longhorn Storage Configuration
+# ============================================
+# Distributed block storage for Kubernetes
+longhorn_version: "v1.7.2"
+longhorn_chart_version: "1.7.2"
+longhorn_namespace: "longhorn-system"
+longhorn_default_data_path: "/var/lib/longhorn"
+longhorn_default_replica_count: 3
+longhorn_default_storage_class: true
+longhorn_storage_class_name: "longhorn"
+longhorn_storage_retain_policy: "Delete"
+
+# Longhorn UI configuration
+longhorn_ui_enable: true
+longhorn_ui_service_type: "ClusterIP"
+
+# Longhorn ingress (optional)
+longhorn_ingress_enabled: false
+longhorn_ingress_host: "longhorn.homelab.local"
+longhorn_ingress_tls_enabled: false
+
+# Longhorn backup target (optional - S3, NFS, etc.)
+# longhorn_backup_target: "s3://bucket@region/path"
+# longhorn_backup_target_secret: "longhorn-backup-secret"
+
+# Resource requests
+longhorn_manager_cpu_request: "100m"
+longhorn_manager_memory_request: "128Mi"
+longhorn_driver_cpu_request: "100m"
+longhorn_driver_memory_request: "128Mi"
+longhorn_ui_cpu_request: "100m"
+longhorn_ui_memory_request: "128Mi"
+
+# Advanced options
+longhorn_enable_upgrade_checker: true
+longhorn_guaranteed_instance_manager_cpu: "12"

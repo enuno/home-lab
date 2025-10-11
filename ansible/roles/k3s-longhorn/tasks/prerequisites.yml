@@ -1,0 +1,114 @@
+---
+# Longhorn Prerequisites Tasks
+# Installs required packages and configures system for Longhorn
+
+- name: Check if running on worker node
+  ansible.builtin.set_fact:
+    is_longhorn_node: "{{ 'k3s_workers' in group_names or ('k3s_masters' in group_names and not k3s_taint_masters | default(true)) }}"
+  tags: [longhorn, prerequisites]
+
+- name: Longhorn prerequisites installation
+  when: is_longhorn_node
+  tags: [longhorn, prerequisites]
+  block:
+    - name: Update apt cache (Debian/Ubuntu)
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == 'Debian'
+
+    - name: Install required packages for Longhorn (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name: "{{ longhorn_required_packages }}"
+        state: present
+      when: ansible_os_family == 'Debian'
+
+    - name: Install required packages for Longhorn (RHEL/CentOS)
+      ansible.builtin.yum:
+        name:
+          - iscsi-initiator-utils
+          - nfs-utils
+          - util-linux
+          - curl
+        state: present
+      when: ansible_os_family == 'RedHat'
+
+    - name: Ensure iscsid service is enabled and started
+      ansible.builtin.systemd:
+        name: iscsid
+        state: started
+        enabled: true
+
+    - name: Load required kernel modules
+      community.general.modprobe:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ longhorn_required_modules }}"
+
+    - name: Ensure kernel modules load on boot
+      ansible.builtin.lineinfile:
+        path: /etc/modules-load.d/longhorn.conf
+        line: "{{ item }}"
+        create: true
+        mode: '0644'
+      loop: "{{ longhorn_required_modules }}"
+
+    - name: Create Longhorn data directory
+      ansible.builtin.file:
+        path: "{{ longhorn_default_data_path }}"
+        state: directory
+        mode: '0755'
+
+    - name: Check available disk space
+      ansible.builtin.shell: |
+        df -h {{ longhorn_default_data_path }} | tail -1 | awk '{print $4}'
+      register: disk_space
+      changed_when: false
+
+    - name: Display available disk space
+      ansible.builtin.debug:
+        msg: "Available space for Longhorn at {{ longhorn_default_data_path }}: {{ disk_space.stdout }}"
+
+    - name: Verify iSCSI initiator name exists
+      ansible.builtin.stat:
+        path: /etc/iscsi/initiatorname.iscsi
+      register: iscsi_initiator
+
+    - name: Generate iSCSI initiator name if missing
+      ansible.builtin.shell: |
+        echo "InitiatorName=$(iscsi-iname)" > /etc/iscsi/initiatorname.iscsi
+      when: not iscsi_initiator.stat.exists
+      changed_when: true
+
+    - name: Restart iscsid service after configuration
+      ansible.builtin.systemd:
+        name: iscsid
+        state: restarted
+      when: not iscsi_initiator.stat.exists
+
+- name: Run Longhorn environment check script
+  when:
+    - is_longhorn_node
+    - "'k3s_masters' in group_names"
+  tags: [longhorn, prerequisites, check]
+  block:
+    - name: Download Longhorn environment check script
+      ansible.builtin.get_url:
+        url: "https://raw.githubusercontent.com/longhorn/longhorn/{{ longhorn_version }}/scripts/environment_check.sh"
+        dest: /tmp/longhorn_environment_check.sh
+        mode: '0755'
+
+    - name: Run environment check script
+      ansible.builtin.command: /tmp/longhorn_environment_check.sh
+      register: environment_check
+      changed_when: false
+      failed_when: false
+
+    - name: Display environment check results
+      ansible.builtin.debug:
+        msg: "{{ environment_check.stdout_lines }}"
+
+    - name: Remove environment check script
+      ansible.builtin.file:
+        path: /tmp/longhorn_environment_check.sh
+        state: absent
