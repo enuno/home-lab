@@ -62,7 +62,7 @@
   gather_facts: false
   tags: [always]
 
-  tasks:
+  pre_tasks:
     - name: Load Pi-hole variables
       ansible.builtin.include_vars:
         file: "{{ playbook_dir }}/../group_vars/pihole.yml"
@@ -71,7 +71,6 @@
     - name: Load Pi-hole vault (if exists)
       ansible.builtin.include_vars:
         file: "{{ playbook_dir }}/../group_vars/pihole_vault.yml"
-      ignore_errors: true
       tags: [always]
 
 - name: Deploy Pi-hole to K3s cluster

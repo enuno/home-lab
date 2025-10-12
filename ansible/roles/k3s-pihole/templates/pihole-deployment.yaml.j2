@@ -54,7 +54,7 @@ spec:
 
         # IPv6 support
         - name: IPv6
-          value: "{{ pihole_ipv6 }"
+          value: "{{ pihole_ipv6 }}"
 
         # Web interface
         - name: WEBTHEME
@@ -99,7 +99,7 @@ spec:
           value: "{{ pihole_conditional_forwarding_router }}"
 {% endif %}
 
-{% if pihole_extra_env_vars | length > 0 %}
+{% if pihole_extra_env_vars and pihole_extra_env_vars | length > 0 %}
         # Additional environment variables
 {% for key, value in pihole_extra_env_vars.items() %}
         - name: {{ key }}

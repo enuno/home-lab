@@ -48,7 +48,12 @@ Key settings to review:
 
 Run the playbook:
 ```bash
-ansible-playbook -i inventory/production playbooks/pihole-deploy.yml --ask-vault-pass
+ansible-playbook -i inventory/k3s-cluster.ini playbooks/pihole-deploy.yml --ask-vault-pass
+```
+
+Or simply (since ansible.cfg already specifies the inventory):
+```bash
+ansible-playbook playbooks/pihole-deploy.yml --ask-vault-pass
 ```
 
 Enter your vault password when prompted.
@@ -155,7 +160,7 @@ kubectl exec -it -n pihole deployment/pihole -- /bin/bash
 vim group_vars/pihole.yml
 
 # Redeploy
-ansible-playbook -i inventory/production playbooks/pihole-deploy.yml --ask-vault-pass
+ansible-playbook playbooks/pihole-deploy.yml --ask-vault-pass
 ```
 
 ## Troubleshooting

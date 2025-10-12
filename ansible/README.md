@@ -447,7 +447,9 @@ ansible -i inventory/k3s-cluster.ini k3s_cluster -m setup
 | Playbook | Description | Tags Available |
 |----------|-------------|----------------|
 | `k3s-cluster.yml` | Full K3s cluster deployment with HA support | `preflight`, `master`, `worker`, `firewall`, `helm`, `tailscale`, `kubeconfig`, `verification` |
+| `pihole-deploy.yml` | Pi-hole DNS ad-blocker deployment to K3s with MetalLB | `preflight`, `validation`, `deploy`, `service`, `storage`, `verify` |
 | `ubuntu-baseline.yml` | Ubuntu system baseline configuration and hardening | `packages`, `security`, `users`, `sysctl`, `cron` |
+| `longhorn-deploy.yml` | Longhorn distributed block storage deployment | `prerequisites`, `install`, `ingress` |
 
 ### k3s-cluster.yml
 

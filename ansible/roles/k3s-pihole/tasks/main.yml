@@ -56,14 +56,14 @@
   ansible.builtin.template:
     src: pihole-namespace.yaml.j2
     dest: "{{ pihole_temp_dir.path }}/pihole-namespace.yaml"
-    mode: '0644'
+    mode: "0644"
   tags: [deploy]
 
 - name: Generate Pi-hole PVC manifests
   ansible.builtin.template:
     src: pihole-pvc.yaml.j2
     dest: "{{ pihole_temp_dir.path }}/pihole-pvc.yaml"
-    mode: '0644'
+    mode: "0644"
   when: pihole_storage_enabled
   tags: [deploy, storage]
 
@@ -71,21 +71,21 @@
   ansible.builtin.template:
     src: pihole-configmap.yaml.j2
     dest: "{{ pihole_temp_dir.path }}/pihole-configmap.yaml"
-    mode: '0644'
+    mode: "0644"
   tags: [deploy, config]
 
 - name: Generate Pi-hole Deployment manifest
   ansible.builtin.template:
     src: pihole-deployment.yaml.j2
     dest: "{{ pihole_temp_dir.path }}/pihole-deployment.yaml"
-    mode: '0644'
+    mode: "0644"
   tags: [deploy]
 
 - name: Generate Pi-hole Service manifests
   ansible.builtin.template:
     src: pihole-service.yaml.j2
     dest: "{{ pihole_temp_dir.path }}/pihole-service.yaml"
-    mode: '0644'
+    mode: "0644"
   tags: [deploy, service]
 
 - name: Apply Pi-hole namespace
@@ -148,6 +148,16 @@
   changed_when: "'created' in service_result.stdout or 'configured' in service_result.stdout"
   tags: [deploy, service]
 
+- name: Check if Pi-hole deployment exists
+  ansible.builtin.command: >
+    kubectl get deployment pihole -n {{ pihole_namespace }}
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: deployment_check
+  changed_when: false
+  failed_when: deployment_check.rc != 0
+  tags: [deploy, verify]
+
 - name: Wait for Pi-hole deployment to be ready
   ansible.builtin.command: >
     kubectl wait --for=condition=available deployment/pihole
@@ -156,9 +166,10 @@
     KUBECONFIG: /etc/rancher/k3s/k3s.yaml
   register: deployment_wait
   changed_when: false
-  retries: 5
-  delay: 15
+  retries: 3
+  delay: 30
   until: deployment_wait.rc == 0
+  when: deployment_check.rc == 0
   tags: [deploy, verify]
 
 - name: Get Pi-hole pod status
