@@ -1,0 +1,454 @@
+---
+# Rancher Deployment Tasks for K3s Cluster
+# Deploys Rancher multi-cluster management UI using Helm
+
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - rancher_namespace is defined
+      - rancher_hostname is defined
+      - rancher_hostname != "rancher.homelab.local" or ansible_check_mode
+      - rancher_bootstrap_password is defined
+      - rancher_bootstrap_password != "admin"
+    fail_msg: "Required variables are not defined or using default values. Please set rancher_hostname and rancher_bootstrap_password."
+    success_msg: "Required variables are properly configured"
+  tags: [validation]
+
+- name: Check if K3s is installed and running
+  ansible.builtin.command: kubectl get nodes
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: k3s_status
+  changed_when: false
+  failed_when: k3s_status.rc != 0
+  tags: [validation]
+
+- name: Display deployment information
+  ansible.builtin.debug:
+    msg: |
+      ================================================
+      Deploying Rancher to K3s Cluster
+      ================================================
+      Namespace: {{ rancher_namespace }}
+      Hostname: {{ rancher_hostname }}
+      Chart Version: {{ rancher_chart_version }}
+      Cert-Manager: {{ rancher_install_cert_manager }}
+      TLS Source: {{ rancher_ingress_tls_source }}
+      Replicas: {{ rancher_replicas }}
+      ================================================
+  tags: [always]
+
+- name: Create cattle-system namespace
+  ansible.builtin.command: kubectl create namespace {{ rancher_namespace }}
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: namespace_result
+  changed_when: namespace_result.rc == 0
+  failed_when: false
+  tags: [deploy]
+
+- name: Label cattle-system namespace
+  ansible.builtin.command: >
+    kubectl label namespace {{ rancher_namespace }}
+    {% for key, value in rancher_namespace_labels.items() %}{{ key }}={{ value }} {% endfor %}
+    --overwrite
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: namespace_label
+  changed_when: "'labeled' in namespace_label.stdout"
+  tags: [deploy]
+
+# ============================================
+# Install cert-manager
+# ============================================
+- name: Install cert-manager
+  when: rancher_install_cert_manager
+  tags: [cert-manager]
+  block:
+    - name: Add Jetstack Helm repository
+      ansible.builtin.command: >
+        helm repo add jetstack https://charts.jetstack.io
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: helm_repo_add
+      changed_when: "'has been added' in helm_repo_add.stdout"
+      failed_when: false
+
+    - name: Update Helm repositories
+      ansible.builtin.command: helm repo update
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      changed_when: false
+
+    - name: Check if cert-manager is already installed
+      ansible.builtin.command: helm list -n cert-manager -o json
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: cert_manager_check
+      changed_when: false
+      failed_when: false
+
+    - name: Create cert-manager namespace
+      ansible.builtin.command: kubectl create namespace cert-manager
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: cert_manager_ns
+      changed_when: cert_manager_ns.rc == 0
+      failed_when: false
+      when: cert_manager_check.stdout == "" or (cert_manager_check.stdout | from_json | length) == 0
+
+    - name: Install cert-manager using Helm
+      ansible.builtin.command: >
+        helm upgrade --install cert-manager jetstack/cert-manager
+        --namespace cert-manager
+        --version {{ rancher_cert_manager_chart_version }}
+        --set crds.enabled=true
+        --set crds.keep=true
+        --wait
+        --timeout {{ rancher_helm_timeout }}
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: cert_manager_install
+      changed_when: "'has been upgraded' in cert_manager_install.stdout or 'has been installed' in cert_manager_install.stdout"
+      when: cert_manager_check.stdout == "" or (cert_manager_check.stdout | from_json | length) == 0
+
+    - name: Wait for cert-manager to be ready
+      ansible.builtin.command: >
+        kubectl wait --for=condition=available deployment/cert-manager
+        -n cert-manager --timeout=300s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: cert_manager_ready
+      changed_when: false
+      retries: 3
+      delay: 10
+      until: cert_manager_ready.rc == 0
+
+    - name: Verify cert-manager webhook is ready
+      ansible.builtin.command: >
+        kubectl wait --for=condition=available deployment/cert-manager-webhook
+        -n cert-manager --timeout=300s
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: cert_manager_webhook_ready
+      changed_when: false
+      retries: 3
+      delay: 10
+      until: cert_manager_webhook_ready.rc == 0
+
+    - name: Wait additional time for webhook to be fully ready
+      ansible.builtin.pause:
+        seconds: 30
+      when: cert_manager_webhook_ready.rc == 0
+
+    - name: Test cert-manager webhook connectivity
+      ansible.builtin.command: >
+        kubectl get validatingwebhookconfigurations cert-manager-webhook
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: webhook_config_check
+      changed_when: false
+      failed_when: false
+
+# ============================================
+# Install Rancher
+# ============================================
+- name: Add Rancher Helm repository
+  ansible.builtin.command: >
+    helm repo add rancher-latest {{ rancher_chart_repo }}
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: rancher_repo_add
+  changed_when: "'has been added' in rancher_repo_add.stdout"
+  failed_when: false
+  tags: [deploy]
+
+- name: Update Helm repositories
+  ansible.builtin.command: helm repo update
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  changed_when: false
+  tags: [deploy]
+
+- name: Create temporary directory for Helm values
+  ansible.builtin.tempfile:
+    state: directory
+    suffix: rancher
+  register: rancher_temp_dir
+  tags: [deploy]
+
+- name: Generate Rancher Helm values file
+  ansible.builtin.template:
+    src: rancher-values.yaml.j2
+    dest: "{{ rancher_temp_dir.path }}/rancher-values.yaml"
+    mode: "0644"
+  tags: [deploy]
+
+- name: Check if Rancher is already installed
+  ansible.builtin.command: helm list -n {{ rancher_namespace }} -o json
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: rancher_check
+  changed_when: false
+  failed_when: false
+  tags: [deploy]
+
+- name: Check for stuck Helm release
+  ansible.builtin.command: helm list -n {{ rancher_namespace }} --pending --failed -o json
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: rancher_stuck_check
+  changed_when: false
+  failed_when: false
+  tags: [deploy]
+
+- name: Clean up stuck Helm release if found
+  ansible.builtin.command: helm uninstall {{ rancher_chart_name }} -n {{ rancher_namespace }} --wait
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when: (rancher_stuck_check.stdout | from_json | length) > 0
+  register: rancher_cleanup
+  changed_when: rancher_cleanup.rc == 0
+  failed_when: false
+  tags: [deploy]
+
+- name: Delete Rancher namespace if cleanup was needed
+  ansible.builtin.command: kubectl delete namespace {{ rancher_namespace }} --timeout=120s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when: (rancher_stuck_check.stdout | from_json | length) > 0
+  register: namespace_cleanup
+  changed_when: namespace_cleanup.rc == 0
+  failed_when: false
+  tags: [deploy]
+
+- name: Wait for namespace deletion to complete
+  ansible.builtin.command: kubectl get namespace {{ rancher_namespace }}
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when: (rancher_stuck_check.stdout | from_json | length) > 0
+  register: namespace_check
+  changed_when: false
+  failed_when: false
+  retries: 30
+  delay: 5
+  until: namespace_check.rc != 0
+  tags: [deploy]
+
+- name: Force cleanup stuck namespace if still exists
+  when: (rancher_stuck_check.stdout | from_json | length) > 0 and namespace_check.rc == 0
+  tags: [deploy]
+  block:
+    - name: Remove finalizers from namespace
+      ansible.builtin.shell: |
+        kubectl get namespace {{ rancher_namespace }} -o json | \
+        jq '.spec.finalizers = []' | \
+        kubectl replace --raw /api/v1/namespaces/{{ rancher_namespace }}/finalize -f -
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: finalizer_remove
+      changed_when: finalizer_remove.rc == 0
+      failed_when: false
+
+    - name: Wait after finalizer removal
+      ansible.builtin.pause:
+        seconds: 10
+
+    - name: Check namespace again
+      ansible.builtin.command: kubectl get namespace {{ rancher_namespace }}
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: namespace_final_check
+      changed_when: false
+      failed_when: false
+
+- name: Display namespace status
+  ansible.builtin.debug:
+    msg: "Namespace {{ rancher_namespace }} {% if namespace_final_check.rc != 0 or namespace_check.rc != 0 %}deleted{% else %}still exists{% endif %}"
+  when: (rancher_stuck_check.stdout | from_json | length) > 0
+  tags: [deploy]
+
+- name: Recreate cattle-system namespace after cleanup
+  ansible.builtin.command: kubectl create namespace {{ rancher_namespace }}
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when: (rancher_stuck_check.stdout | from_json | length) > 0
+  register: namespace_recreate
+  changed_when: namespace_recreate.rc == 0
+  failed_when: namespace_recreate.rc not in [0, 1]
+  tags: [deploy]
+
+- name: Wait for new namespace to be ready
+  ansible.builtin.command: kubectl get namespace {{ rancher_namespace }} -o jsonpath='{.status.phase}'
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  when: (rancher_stuck_check.stdout | from_json | length) > 0
+  register: namespace_status
+  changed_when: false
+  retries: 10
+  delay: 3
+  until: namespace_status.stdout == "Active"
+  tags: [deploy]
+
+- name: Download and extract Rancher Helm chart
+  ansible.builtin.command: >
+    helm pull rancher-latest/{{ rancher_chart_name }}
+    --version {{ rancher_chart_version }}
+    --untar
+    --untardir {{ rancher_temp_dir.path }}
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: rancher_pull
+  changed_when: false
+  tags: [deploy]
+
+- name: Remove kubeVersion constraint from Chart.yaml
+  ansible.builtin.lineinfile:
+    path: "{{ rancher_temp_dir.path }}/{{ rancher_chart_name }}/Chart.yaml"
+    regexp: '^kubeVersion:'
+    state: absent
+  tags: [deploy]
+
+- name: Install/Upgrade Rancher using modified chart (without wait)
+  ansible.builtin.command: >
+    helm upgrade --install {{ rancher_chart_name }} {{ rancher_temp_dir.path }}/{{ rancher_chart_name }}
+    --namespace {{ rancher_namespace }}
+    --values {{ rancher_temp_dir.path }}/rancher-values.yaml
+    --create-namespace
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: rancher_install
+  changed_when: "'has been upgraded' in rancher_install.stdout or 'has been installed' in rancher_install.stdout"
+  tags: [deploy]
+
+- name: Display Helm installation result
+  ansible.builtin.debug:
+    msg: "{{ rancher_install.stdout }}"
+  tags: [deploy]
+
+- name: Wait for Rancher pods to be created
+  ansible.builtin.command: >
+    kubectl get pods -n {{ rancher_namespace }} -l app=rancher
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: rancher_pods_check
+  changed_when: false
+  retries: 10
+  delay: 10
+  until: rancher_pods_check.rc == 0 and rancher_pods_check.stdout != ""
+  tags: [deploy, verify]
+
+- name: Wait for Rancher deployment to be ready
+  ansible.builtin.command: >
+    kubectl wait --for=condition=available deployment/rancher
+    -n {{ rancher_namespace }} --timeout={{ rancher_deployment_timeout }}s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: rancher_ready
+  changed_when: false
+  retries: 5
+  delay: 60
+  until: rancher_ready.rc == 0
+  failed_when: false
+  tags: [deploy, verify]
+
+- name: Check Rancher deployment status if wait failed
+  when: rancher_ready.rc != 0
+  tags: [deploy, verify]
+  block:
+    - name: Get Rancher deployment status
+      ansible.builtin.command: >
+        kubectl get deployment rancher -n {{ rancher_namespace }} -o yaml
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: rancher_deployment_details
+      changed_when: false
+
+    - name: Display deployment status
+      ansible.builtin.debug:
+        msg: |
+          WARNING: Rancher deployment may not be fully ready yet.
+          Check status with: kubectl get pods -n {{ rancher_namespace }}
+
+          Current status:
+          {{ rancher_deployment_details.stdout }}
+
+- name: Get Rancher pod status
+  ansible.builtin.command: >
+    kubectl get pods -n {{ rancher_namespace }} -l app=rancher -o wide
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: rancher_pod_status
+  changed_when: false
+  tags: [verify]
+
+- name: Get Rancher service information
+  ansible.builtin.command: >
+    kubectl get svc -n {{ rancher_namespace }} -o wide
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: rancher_service_status
+  changed_when: false
+  tags: [verify]
+
+- name: Get Rancher ingress information
+  ansible.builtin.command: >
+    kubectl get ingress -n {{ rancher_namespace }} -o wide
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: rancher_ingress_status
+  changed_when: false
+  failed_when: false
+  tags: [verify]
+
+- name: Cleanup temporary directory
+  ansible.builtin.file:
+    path: "{{ rancher_temp_dir.path }}"
+    state: absent
+  when: rancher_temp_dir.path is defined
+  tags: [cleanup]
+
+- name: Display Rancher deployment summary
+  ansible.builtin.debug:
+    msg: |
+      ================================================================
+      Rancher Deployment Complete!
+      ================================================================
+      Namespace: {{ rancher_namespace }}
+
+      Pod Status:
+      {{ rancher_pod_status.stdout }}
+
+      Service Status:
+      {{ rancher_service_status.stdout }}
+
+      Ingress Status:
+      {{ rancher_ingress_status.stdout if rancher_ingress_status.rc == 0 else 'No ingress found' }}
+
+      ================================================================
+      Access Information:
+      ================================================================
+      Rancher URL: https://{{ rancher_hostname }}
+      Bootstrap Password: {{ rancher_bootstrap_password }}
+
+      ================================================================
+      Next Steps:
+      ================================================================
+      1. Add DNS record or /etc/hosts entry:
+         {{ rancher_hostname }} -> <ingress-controller-ip>
+
+      2. Access Rancher at: https://{{ rancher_hostname }}
+
+      3. Login with bootstrap password: {{ rancher_bootstrap_password }}
+
+      4. Set a new secure password on first login
+
+      5. Import or create Kubernetes clusters
+
+      To view logs:
+      kubectl logs -n {{ rancher_namespace }} -l app=rancher -f
+
+      To get service status:
+      kubectl get all -n {{ rancher_namespace }}
+      ================================================================
+  tags: [verify, always]

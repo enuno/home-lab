@@ -1,0 +1,273 @@
+---
+# Rancher Deployment Playbook
+# Deploys Rancher multi-cluster management UI to K3s cluster
+# https://rancher.com/
+
+- name: Pre-deployment checks
+  hosts: k3s_masters[0]
+  gather_facts: true
+  become: true
+  tags: [preflight, validation]
+
+  tasks:
+    - name: Verify K3s cluster is running
+      ansible.builtin.command: kubectl get nodes
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: cluster_status
+      changed_when: false
+      failed_when: cluster_status.rc != 0
+
+    - name: Check cluster node status
+      ansible.builtin.command: kubectl get nodes -o wide
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: node_status
+      changed_when: false
+
+    - name: Display cluster status
+      ansible.builtin.debug:
+        msg: |
+          K3s Cluster Status:
+          {{ node_status.stdout }}
+
+    - name: Check if Helm is installed
+      ansible.builtin.command: helm version --short
+      register: helm_version
+      changed_when: false
+      failed_when: false
+
+    - name: Display Helm version
+      ansible.builtin.debug:
+        msg: "Helm version: {{ helm_version.stdout }}"
+      when: helm_version.rc == 0
+
+    - name: Verify Helm is available
+      ansible.builtin.fail:
+        msg: "Helm is not installed. Please install Helm first."
+      when: helm_version.rc != 0
+
+    - name: Check for existing Rancher installation
+      ansible.builtin.command: helm list -n cattle-system -o json
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: existing_rancher
+      changed_when: false
+      failed_when: false
+
+    - name: Display existing Rancher installation
+      ansible.builtin.debug:
+        msg: |
+          WARNING: Rancher is already installed!
+          {{ existing_rancher.stdout }}
+      when: existing_rancher.rc == 0 and (existing_rancher.stdout | from_json | length) > 0
+
+- name: Load Rancher configuration variables
+  hosts: k3s_masters[0]
+  gather_facts: false
+  tags: [always]
+
+  pre_tasks:
+    - name: Load Rancher variables
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../group_vars/rancher.yml"
+      tags: [always]
+
+    - name: Load Rancher vault (if exists)
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../group_vars/rancher_vault.yml"
+      tags: [always]
+      failed_when: false
+
+- name: Deploy Rancher to K3s cluster
+  hosts: k3s_masters[0]
+  gather_facts: false
+  become: true
+  tags: [deploy, rancher]
+
+  roles:
+    - role: k3s-rancher
+
+- name: Post-deployment verification
+  hosts: k3s_masters[0]
+  gather_facts: false
+  become: true
+  tags: [verify, post-deployment]
+
+  tasks:
+    - name: Wait for Rancher pods to be running
+      ansible.builtin.command: >
+        kubectl get pods -n {{ rancher_namespace }} -l app=rancher
+        -o jsonpath='{.items[*].status.phase}'
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: pod_phases
+      until: pod_phases.stdout.split() | reject('eq', 'Running') | list | length == 0
+      retries: 30
+      delay: 10
+      changed_when: false
+
+    - name: Get Rancher ingress details
+      ansible.builtin.command: >
+        kubectl get ingress -n {{ rancher_namespace }} -o wide
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: ingress_details
+      changed_when: false
+      failed_when: false
+
+    - name: Get ingress controller service
+      ansible.builtin.command: >
+        kubectl get svc -n kube-system -l app.kubernetes.io/component=controller -o wide
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: ingress_svc
+      changed_when: false
+      failed_when: false
+
+    - name: Display ingress information
+      ansible.builtin.debug:
+        msg: |
+          ================================================================
+          Ingress Configuration:
+          ================================================================
+          {{ ingress_details.stdout if ingress_details.rc == 0 else 'No ingress found' }}
+
+          Ingress Controller Service:
+          {{ ingress_svc.stdout if ingress_svc.rc == 0 else 'No ingress controller found' }}
+          ================================================================
+
+    - name: Fetch kubeconfig for local access
+      ansible.builtin.fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: "{{ playbook_dir }}/../kubeconfig/k3s-rancher-access.yaml"
+        flat: true
+      tags: [kubeconfig]
+
+    - name: Update kubeconfig server address
+      delegate_to: localhost
+      become: false
+      ansible.builtin.replace:
+        path: "{{ playbook_dir }}/../kubeconfig/k3s-rancher-access.yaml"
+        regexp: 'https://127.0.0.1:6443'
+        replace: "https://{{ ansible_default_ipv4.address }}:6443"
+      tags: [kubeconfig]
+
+    - name: Display final deployment summary
+      ansible.builtin.debug:
+        msg: |
+          ================================================================
+          Rancher Deployment Completed Successfully!
+          ================================================================
+
+          Access URL: https://{{ rancher_hostname }}
+          Bootstrap Password: {{ rancher_bootstrap_password }}
+
+          ================================================================
+          DNS/Hosts Configuration Required:
+          ================================================================
+          Add the following to your DNS or /etc/hosts:
+          <INGRESS_IP> {{ rancher_hostname }}
+
+          To find your ingress IP:
+          kubectl get svc -n kube-system | grep ingress
+
+          ================================================================
+          Manage with kubectl:
+          ================================================================
+          export KUBECONFIG={{ playbook_dir }}/../kubeconfig/k3s-rancher-access.yaml
+
+          Useful commands:
+          # View Rancher resources
+          kubectl get all -n {{ rancher_namespace }}
+
+          # View Rancher logs
+          kubectl logs -n {{ rancher_namespace }} -l app=rancher -f
+
+          # Check certificate status
+          kubectl get certificates -n {{ rancher_namespace }}
+
+          # View ingress status
+          kubectl get ingress -n {{ rancher_namespace }}
+
+          # Restart Rancher
+          kubectl rollout restart deployment/rancher -n {{ rancher_namespace }}
+
+          ================================================================
+
+- name: Configuration recommendations
+  hosts: localhost
+  gather_facts: false
+  tags: [recommendations]
+
+  tasks:
+    - name: Display configuration recommendations
+      ansible.builtin.debug:
+        msg: |
+          ================================================================
+          Rancher Post-Installation Recommendations
+          ================================================================
+
+          1. Initial Login:
+             - Access: https://{{ rancher_hostname }}
+             - Username: admin
+             - Password: {{ rancher_bootstrap_password }}
+             - Set a new secure password on first login
+
+          2. SSL Certificate:
+             - Current setup uses Rancher-generated self-signed certificates
+             - For production, consider Let's Encrypt or custom certificates
+             - Update rancher_ingress_tls_source in group_vars/rancher.yml
+
+          3. Import Existing Clusters:
+             - Click "Import Existing" in Rancher UI
+             - Follow the instructions to add your K3s cluster
+             - Install Rancher agent on managed clusters
+
+          4. Enable Monitoring:
+             - Install Rancher monitoring stack
+             - Configure Prometheus and Grafana
+             - Set up alerting rules
+
+          5. Configure Authentication:
+             - Set up external authentication (LDAP, SAML, OAuth)
+             - Configure RBAC policies
+             - Create additional users and roles
+
+          6. Backup Configuration:
+             - Enable automated etcd backups
+             - Configure backup target (S3, NFS, etc.)
+             - Test restore procedures
+
+          7. High Availability:
+             - Current setup: {{ rancher_replicas }} replicas
+             - For production HA, use 3+ replicas
+             - Configure pod anti-affinity rules
+
+          8. Network Policy:
+             - Implement network policies for security
+             - Restrict access to Rancher namespace
+             - Configure ingress firewall rules
+
+          9. Monitoring & Logging:
+             - Monitor Rancher pod health and performance
+             - Configure log aggregation
+             - Set up alerts for critical events
+
+          10. Updates:
+              - Subscribe to Rancher release notifications
+              - Test updates in staging environment
+              - Follow upgrade documentation carefully
+
+          ================================================================
+          Troubleshooting:
+          ================================================================
+          If you can't access Rancher:
+          1. Check pod status: kubectl get pods -n cattle-system
+          2. Check ingress: kubectl get ingress -n cattle-system
+          3. Verify DNS/hosts entry points to ingress IP
+          4. Check cert-manager: kubectl get certificates -n cattle-system
+          5. View logs: kubectl logs -n cattle-system -l app=rancher
+
+          For more help: https://ranchermanager.docs.rancher.com/
+          ================================================================

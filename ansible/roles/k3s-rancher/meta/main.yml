@@ -1,0 +1,27 @@
+---
+galaxy_info:
+  author: Home Lab Infrastructure Team
+  description: Deploy Rancher multi-cluster Kubernetes management UI to K3s
+  company: HashGrid Labs
+  license: MIT
+  min_ansible_version: "2.14"
+
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+
+  galaxy_tags:
+    - kubernetes
+    - k3s
+    - rancher
+    - cluster-management
+    - kubernetes-ui
+    - helm
+
+dependencies: []

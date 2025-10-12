@@ -1,0 +1,7 @@
+---
+# Rancher Vault - Encrypted Secrets
+# Encrypt this file with: ansible-vault encrypt group_vars/rancher_vault.yml
+
+# Bootstrap password for Rancher admin user
+# Change this to a strong, unique password before encrypting
+vault_rancher_bootstrap_password: "YourSecurePasswordHere"

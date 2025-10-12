@@ -1,0 +1,150 @@
+---
+# Rancher Deployment Configuration
+# Default variables for deploying Rancher to K3s cluster
+
+# ============================================
+# Namespace Configuration
+# ============================================
+rancher_namespace: "cattle-system"
+rancher_namespace_labels:
+  name: "cattle-system"
+  purpose: "rancher-management"
+
+# ============================================
+# Rancher Chart Configuration
+# ============================================
+rancher_chart_repo: "https://releases.rancher.com/server-charts/latest"
+rancher_chart_name: "rancher"
+rancher_chart_version: "2.12.2"  # Pin to specific version for production (supports K8s 1.34.x)
+
+# ============================================
+# Rancher Hostname Configuration
+# ============================================
+# IMPORTANT: Set this to your actual domain or IP
+# For production: Use a real domain name
+# For homelab: Can use .local domain or IP with nip.io
+rancher_hostname: "rancher.homelab.local"
+
+# Alternative examples:
+# rancher_hostname: "rancher.example.com"
+# rancher_hostname: "10.2.0.100.nip.io"  # Using nip.io for IP-based access
+
+# ============================================
+# Bootstrap Password
+# ============================================
+# Initial admin password for Rancher
+# IMPORTANT: Override this in vault or extra-vars for production
+rancher_bootstrap_password: "admin"  # Change this!
+
+# ============================================
+# Replica Configuration
+# ============================================
+rancher_replicas: 3
+
+# ============================================
+# TLS/Certificate Configuration
+# ============================================
+# Options: rancher, letsEncrypt, secret
+# - rancher: Use Rancher-generated self-signed certificates
+# - letsEncrypt: Use Let's Encrypt for automatic certificates
+# - secret: Bring your own certificates
+rancher_ingress_tls_source: "rancher"
+
+# Let's Encrypt configuration (if using letsEncrypt)
+rancher_letsencrypt_email: ""
+rancher_letsencrypt_environment: "production"  # production or staging
+rancher_letsencrypt_ingress_class: "nginx"
+
+# Custom certificate secret name (if using secret)
+rancher_tls_secret_name: "tls-rancher-ingress"
+
+# ============================================
+# Cert-Manager Configuration
+# ============================================
+# Rancher requires cert-manager for certificate management
+rancher_install_cert_manager: true
+rancher_cert_manager_version: "v1.16.2"
+rancher_cert_manager_chart_version: "v1.16.2"
+
+# ============================================
+# Ingress Configuration
+# ============================================
+rancher_ingress_class: ""  # Leave empty to use default, or specify: nginx, traefik
+rancher_ingress_annotations: {}
+  # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+# Service type for Rancher
+rancher_service_type: "ClusterIP"  # ClusterIP (with ingress) or LoadBalancer
+
+# ============================================
+# Resource Limits
+# ============================================
+rancher_resources_requests_cpu: "100m"
+rancher_resources_requests_memory: "256Mi"
+rancher_resources_limits_cpu: "1000m"
+rancher_resources_limits_memory: "2Gi"
+
+# ============================================
+# Additional Features
+# ============================================
+# Add custom CA bundle
+rancher_add_local_ca: "false"
+rancher_private_ca_secret_name: ""
+
+# Configure proxy settings
+rancher_proxy_http: ""
+rancher_proxy_https: ""
+rancher_no_proxy: "127.0.0.0/8,10.0.0.0/8,cattle-system.svc,localhost"
+
+# ============================================
+# Advanced Configuration
+# ============================================
+# Additional Rancher server arguments
+rancher_extra_env: []
+  # - name: CATTLE_TLS_MIN_VERSION
+  #   value: "1.2"
+
+# Additional Helm values
+rancher_additional_helm_values: {}
+  # auditLog:
+  #   level: 1
+  #   destination: hostPath
+
+# ============================================
+# PSP (Pod Security Policy) Configuration
+# ============================================
+# Deprecated in K8s 1.25+, use PSA (Pod Security Admission)
+rancher_global_psp_enabled: false
+
+# ============================================
+# Anti-Affinity Configuration
+# ============================================
+# Spread Rancher pods across nodes
+rancher_anti_affinity: "preferred"  # preferred or required
+
+# ============================================
+# Monitoring Integration
+# ============================================
+rancher_enable_monitoring: false  # Enable Rancher monitoring stack
+
+# ============================================
+# Backup Configuration
+# ============================================
+rancher_backup_enabled: false
+rancher_backup_schedule: "0 2 * * *"  # Daily at 2 AM
+rancher_backup_retention: 7
+
+# ============================================
+# Feature Flags
+# ============================================
+rancher_features:
+  # fleet: true
+  # continuous-delivery: true
+  # harvester: false
+
+# ============================================
+# Timeout Configuration
+# ============================================
+rancher_deployment_timeout: "600"  # seconds
+rancher_helm_timeout: "10m"

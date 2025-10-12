@@ -1,0 +1,92 @@
+---
+# Rancher Configuration Variables
+# Override default values from role defaults here
+
+# ============================================
+# Namespace Configuration
+# ============================================
+rancher_namespace: "cattle-system"
+
+# ============================================
+# Chart Configuration
+# ============================================
+# Note: Rancher 2.12.x is required for K3s 1.34.x support
+rancher_chart_version: "2.12.2"
+
+# ============================================
+# Hostname Configuration
+# ============================================
+# IMPORTANT: Change this to your actual domain or use nip.io for testing
+# Examples:
+# - rancher.lab.hashgrid.net (if you have DNS)
+# - 10.2.0.100.nip.io (using nip.io with your K3s master IP)
+rancher_hostname: "rancher.lab.hashgrid.net"
+
+# ============================================
+# Bootstrap Password
+# ============================================
+# IMPORTANT: Override this in rancher_vault.yml
+rancher_bootstrap_password: "{{ vault_rancher_bootstrap_password | default('changeme123') }}"
+
+# ============================================
+# TLS/Certificate Configuration
+# ============================================
+# Options: rancher, letsEncrypt, secret
+# Use 'rancher' for self-signed certs in homelab
+rancher_ingress_tls_source: "rancher"
+
+# Let's Encrypt configuration (if using letsEncrypt)
+# rancher_letsencrypt_email: "admin@example.com"
+# rancher_letsencrypt_environment: "production"
+
+# ============================================
+# Replica Configuration
+# ============================================
+# Use 3 replicas for HA, or 1 for resource-constrained environments
+rancher_replicas: 3
+
+# ============================================
+# Cert-Manager Configuration
+# ============================================
+rancher_install_cert_manager: true
+rancher_cert_manager_version: "v1.16.2"
+rancher_cert_manager_chart_version: "v1.16.2"
+
+# ============================================
+# Ingress Configuration
+# ============================================
+# Leave empty to use default ingress class
+# Set to 'nginx' if you have nginx-ingress installed
+rancher_ingress_class: ""
+
+rancher_ingress_annotations:
+  nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+# ============================================
+# Resource Limits
+# ============================================
+rancher_resources_requests_cpu: "200m"
+rancher_resources_requests_memory: "512Mi"
+rancher_resources_limits_cpu: "2000m"
+rancher_resources_limits_memory: "4Gi"
+
+# ============================================
+# Anti-Affinity Configuration
+# ============================================
+# Spread Rancher pods across nodes for HA
+rancher_anti_affinity: "preferred"
+
+# ============================================
+# Advanced Configuration
+# ============================================
+# Proxy settings (if behind corporate proxy)
+# rancher_proxy_http: "http://proxy.example.com:8080"
+# rancher_proxy_https: "http://proxy.example.com:8080"
+rancher_no_proxy: "127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,cattle-system.svc,localhost"
+
+# ============================================
+# Timeout Configuration
+# ============================================
+rancher_deployment_timeout: "600"
+rancher_helm_timeout: "10m"
