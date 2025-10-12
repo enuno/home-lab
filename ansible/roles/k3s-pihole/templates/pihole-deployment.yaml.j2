@@ -33,7 +33,9 @@ spec:
           value: "{{ pihole_timezone }}"
 
         # Admin password
-        - name: WEBPASSWORD
+        # Note: WEBPASSWORD is deprecated in Pi-hole v6+
+        # Use FTLCONF_webserver_api_password for v6 and later
+        - name: FTLCONF_webserver_api_password
           valueFrom:
             secretKeyRef:
               name: pihole-secret

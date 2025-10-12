@@ -310,7 +310,62 @@ Pi-hole exports metrics that can be scraped by Prometheus:
 - Configure ServiceMonitor
 - Create Grafana dashboards
 
+## Version Upgrade Notes
+
+### Upgrading from 2024.x to 2025.x
+
+**Important:** Pi-hole v6 (2025.x releases) introduced breaking changes to environment variable names for password authentication.
+
+#### Password Environment Variable Change
+
+- **Deprecated**: `WEBPASSWORD`
+- **New (Required)**: `FTLCONF_webserver_api_password`
+
+This role automatically uses the correct environment variable. However, if you're upgrading from an older version:
+
+1. The deployment template has been updated to use `FTLCONF_webserver_api_password`
+2. Your existing password in `group_vars/pihole_vault.yml` will continue to work
+3. Simply redeploy using the updated playbook:
+
+```bash
+./deploy-pihole.sh
+# or
+ansible-playbook -i inventory/production playbooks/pihole-deploy.yml --ask-vault-pass
+```
+
+#### Environment Variable Behavior Changes
+
+In Pi-hole v6+, environment variables become "read-only" and serve as the single source of truth:
+- Settings defined via environment variables cannot be changed through the web UI or CLI
+- This ensures configuration consistency in containerized deployments
+- If you unset an environment variable, FTL will revert to the default value
+
+#### Additional Changes in 2025.08.0
+
+- Improved container startup performance
+- Enhanced FTL file cleanup on startup
+- Removed ncat dependency
+- Updated Docker layer optimization
+
+For a complete list of changes, see: https://github.com/pi-hole/docker-pi-hole/releases/tag/2025.08.0
+
 ## Troubleshooting
+
+### Password Not Working After Upgrade
+
+If you upgraded from 2024.x to 2025.x and can't log in:
+
+**Cause**: The password environment variable changed from `WEBPASSWORD` to `FTLCONF_webserver_api_password` in Pi-hole v6.
+
+**Solution**:
+1. This role's deployment template has been updated to use the correct variable
+2. Redeploy Pi-hole to apply the fix:
+```bash
+cd ansible
+./deploy-pihole.sh
+```
+
+The deployment will update the container configuration with the proper environment variable, and your vault password will work correctly.
 
 ### Pi-hole Pod Not Starting
 
