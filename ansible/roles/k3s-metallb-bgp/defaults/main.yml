@@ -1,0 +1,63 @@
+---
+# Default variables for k3s-metallb-bgp role
+# BGP configuration for MetalLB anycast routing
+
+# ============================================
+# BGP Configuration
+# ============================================
+# BGP autonomous system number (private range)
+metallb_bgp_asn: 65000
+
+# Router IP address (your gateway/router)
+metallb_bgp_router_ip: "10.2.0.1"
+
+# BGP password (optional but recommended)
+metallb_bgp_password: ""
+
+# ============================================
+# Node Configuration
+# ============================================
+# Node ASN for each cluster node (increment from base)
+metallb_node_asn_base: 65001
+
+# Node IPs (will be auto-detected from inventory)
+metallb_node_ips: []
+
+# ============================================
+# IP Address Pools
+# ============================================
+# BGP IP address pools
+metallb_bgp_ip_pools:
+  - name: "default"
+    addresses: ["10.41.0.0/16"]
+    auto_assign: true
+
+# ============================================
+# Advertisement Configuration
+# ============================================
+# BGP advertisement settings
+metallb_bgp_advertisements:
+  - name: "default"
+    ip_address_pools: ["default"]
+    communities: ["65535:65282"] # Standard community for local preference
+
+# ============================================
+# Router Configuration
+# ============================================
+# Generate router configuration files
+metallb_generate_router_config: true
+
+# Router configuration output directory
+metallb_router_config_dir: "/tmp/metallb-router-config"
+
+# Supported router types
+metallb_router_type: "frr" # Options: frr, bird, cisco, juniper, unifi
+
+# ============================================
+# Monitoring
+# ============================================
+# Enable BGP monitoring
+metallb_bgp_monitoring_enabled: true
+
+# Prometheus monitoring
+metallb_prometheus_enabled: true

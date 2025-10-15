@@ -1,0 +1,30 @@
+---
+# MetalLB BGP Peer Configuration
+# This configures MetalLB to peer with your router for anycast routing
+apiVersion: metallb.io/v1beta2
+kind: BGPPeer
+metadata:
+  name: {{ metallb_bgp_asn }}-router
+  namespace: metallb-system
+spec:
+  myASN: {{ metallb_node_asn_base }}
+  peerASN: {{ metallb_bgp_asn }}
+  peerAddress: {{ metallb_bgp_router_ip }}
+  peerPort: 179
+{% if metallb_bgp_password | length > 0 %}
+  password: {{ metallb_bgp_password }}
+{% endif %}
+  holdTime: 90s
+  keepaliveTime: 30s
+  routerID: {{ metallb_nodes[0] }}
+  # Enable graceful restart for better availability
+  gracefulRestart: true
+  gracefulRestartTime: 120s
+  # Node selectors to ensure all nodes participate
+  nodeSelectors:
+    - matchLabels:
+        kubernetes.io/hostname: "{{ groups['k3s_cluster'][0] }}"
+{% for node in groups['k3s_cluster'][1:] %}
+    - matchLabels:
+        kubernetes.io/hostname: "{{ node }}"
+{% endfor %}

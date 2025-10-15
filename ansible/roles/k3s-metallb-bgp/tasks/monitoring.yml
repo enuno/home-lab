@@ -1,0 +1,102 @@
+---
+# BGP monitoring tasks for MetalLB
+
+- name: Create BGP monitoring namespace
+  ansible.builtin.command: kubectl create namespace metallb-monitoring --dry-run=client -o yaml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: monitoring_ns_check
+  changed_when: false
+
+- name: Apply BGP monitoring namespace
+  ansible.builtin.command: kubectl apply -f -
+  args:
+    stdin: "{{ monitoring_ns_check.stdout }}"
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: monitoring_ns_apply
+  changed_when: "'created' in monitoring_ns_apply.stdout"
+
+- name: Create BGP monitoring ConfigMap
+  ansible.builtin.template:
+    src: bgp-monitoring-configmap.yaml.j2
+    dest: /tmp/bgp-monitoring-configmap.yaml
+    mode: "0644"
+
+- name: Apply BGP monitoring ConfigMap
+  ansible.builtin.command: kubectl apply -f /tmp/bgp-monitoring-configmap.yaml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: monitoring_config_apply
+  changed_when: "'created' in monitoring_config_apply.stdout or 'configured' in monitoring_config_apply.stdout"
+
+- name: Create BGP monitoring deployment
+  ansible.builtin.template:
+    src: bgp-monitoring-deployment.yaml.j2
+    dest: /tmp/bgp-monitoring-deployment.yaml
+    mode: "0644"
+
+- name: Apply BGP monitoring deployment
+  ansible.builtin.command: kubectl apply -f /tmp/bgp-monitoring-deployment.yaml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: monitoring_deploy_apply
+  changed_when: "'created' in monitoring_deploy_apply.stdout or 'configured' in monitoring_deploy_apply.stdout"
+
+- name: Create BGP monitoring service
+  ansible.builtin.template:
+    src: bgp-monitoring-service.yaml.j2
+    dest: /tmp/bgp-monitoring-service.yaml
+    mode: "0644"
+
+- name: Apply BGP monitoring service
+  ansible.builtin.command: kubectl apply -f /tmp/bgp-monitoring-service.yaml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: monitoring_svc_apply
+  changed_when: "'created' in monitoring_svc_apply.stdout or 'configured' in monitoring_svc_apply.stdout"
+
+- name: Create BGP monitoring ServiceMonitor (if Prometheus is available)
+  ansible.builtin.template:
+    src: bgp-monitoring-servicemonitor.yaml.j2
+    dest: /tmp/bgp-monitoring-servicemonitor.yaml
+    mode: "0644"
+
+- name: Apply BGP monitoring ServiceMonitor
+  ansible.builtin.command: kubectl apply -f /tmp/bgp-monitoring-servicemonitor.yaml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: monitoring_sm_apply
+  changed_when: "'created' in monitoring_sm_apply.stdout or 'configured' in monitoring_sm_apply.stdout"
+  ignore_errors: true # ServiceMonitor may not be available if Prometheus Operator is not installed
+
+- name: Wait for BGP monitoring deployment to be ready
+  ansible.builtin.command: kubectl wait --for=condition=available deployment/bgp-monitoring -n metallb-monitoring --timeout=60s
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: monitoring_wait
+  changed_when: false
+  ignore_errors: true
+
+- name: Display BGP monitoring status
+  ansible.builtin.debug:
+    msg: |
+      BGP Monitoring Deployed!
+
+      Monitoring Components:
+      - Namespace: metallb-monitoring
+      - Deployment: bgp-monitoring
+      - Service: bgp-monitoring
+      {% if monitoring_sm_apply is defined and monitoring_sm_apply.rc == 0 %}
+      - ServiceMonitor: bgp-monitoring (Prometheus integration)
+      {% endif %}
+
+      Access Monitoring:
+      - Grafana Dashboard: http://grafana.local (if available)
+      - Prometheus Metrics: http://prometheus.local (if available)
+      - Direct Access: kubectl port-forward -n metallb-monitoring svc/bgp-monitoring 8080:8080
+
+      Monitoring Endpoints:
+      - /metrics - Prometheus metrics
+      - /health - Health check
+      - /bgp-status - BGP session status

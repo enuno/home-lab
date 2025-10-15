@@ -1,0 +1,23 @@
+---
+# MetalLB BGP Advertisement Configuration
+# This controls how IP addresses are advertised to the BGP router
+apiVersion: metallb.io/v1beta1
+kind: BGPAdvertisement
+metadata:
+  name: {{ advertisement.name }}
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+{% for pool in advertisement.ip_address_pools %}
+    - {{ pool }}
+{% endfor %}
+  # BGP communities for traffic engineering
+  communities:
+{% for community in advertisement.communities | default([]) %}
+    - {{ community }}
+{% endfor %}
+  # Aggregation settings for route summarization
+  aggregationLength: 32
+  aggregationLengthV6: 128
+  # Local preference (higher = preferred)
+  localPref: 100

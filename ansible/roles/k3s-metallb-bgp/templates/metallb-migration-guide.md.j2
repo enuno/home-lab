@@ -1,0 +1,276 @@
+# MetalLB Migration Guide: L2 → BGP (L3)
+
+This guide walks you through migrating from MetalLB L2 mode to BGP mode for true anycast load balancing.
+
+## 🎯 Migration Overview
+
+### Current State (L2 Mode)
+- MetalLB uses L2 mode with static routes to specific nodes
+- Single point of failure if the target node goes down
+- Manual failover required
+- Limited scalability
+
+### Target State (BGP Mode)
+- MetalLB uses BGP for anycast routing
+- Any node can handle traffic automatically
+- Automatic failover and load distribution
+- True high availability
+
+## 📋 Prerequisites
+
+### 1. Current Setup Verification
+```bash
+# Check current L2 configuration
+kubectl get ipaddresspool,l2advertisement -n metallb-system
+
+# Check LoadBalancer services
+kubectl get svc -A -o wide --field-selector spec.type=LoadBalancer
+
+# Verify Pi-hole is working
+curl http://10.41.0.100/admin/
+```
+
+### 2. Router Requirements
+- **UniFi UDM Pro**: SSH access and BGP support
+- **FRR/BIRD**: Linux router with BGP daemon
+- **Enterprise**: Cisco/Juniper with BGP configuration
+
+### 3. Network Planning
+- **Router ASN**: 65000 (or your chosen ASN)
+- **Node ASN Range**: 65001-65004 (for 4 nodes)
+- **IP Pool**: 10.41.0.0/16 (same as current)
+
+## 🚀 Migration Steps
+
+### Step 1: Run Migration Playbook
+
+```bash
+# Set your router configuration in group_vars/k3s_cluster.yml
+metallb_router_type: "unifi"  # or frr, bird, cisco, juniper
+metallb_bgp_router_ip: "10.2.0.1"  # Your router IP
+metallb_bgp_asn: 65000
+
+# Run the migration playbook
+ansible-playbook -i inventory/k3s-cluster.ini playbooks/k3s-metallb-migration.yml
+```
+
+### Step 2: Configure Router (UniFi UDM Pro)
+
+The playbook will generate configuration files. For UniFi UDM Pro:
+
+```bash
+# SSH to your UDM Pro
+ssh admin@10.2.0.1
+
+# Enter configuration mode
+configure
+
+# Apply the generated commands (copy from the output)
+# Commands will be in: /tmp/metallb-router-config/unifi-cli-commands.txt
+
+# Example commands:
+router bgp 65000
+  bgp router-id 10.2.0.1
+  bgp graceful-restart
+
+  address-family ipv4 unicast
+    neighbor 10.2.0.101 remote-as 65001
+    neighbor 10.2.0.101 description "K3s Node 1"
+    neighbor 10.2.0.101 timers 30 90
+    neighbor 10.2.0.101 activate
+    neighbor 10.2.0.101 next-hop-self
+    neighbor 10.2.0.101 route-reflector-client
+
+    neighbor 10.2.0.102 remote-as 65002
+    neighbor 10.2.0.102 description "K3s Node 2"
+    neighbor 10.2.0.102 timers 30 90
+    neighbor 10.2.0.102 activate
+    neighbor 10.2.0.102 next-hop-self
+    neighbor 10.2.0.102 route-reflector-client
+
+    neighbor 10.2.0.103 remote-as 65003
+    neighbor 10.2.0.103 description "K3s Node 3"
+    neighbor 10.2.0.103 timers 30 90
+    neighbor 10.2.0.103 activate
+    neighbor 10.2.0.103 next-hop-self
+    neighbor 10.2.0.103 route-reflector-client
+
+    network 10.41.0.0/16
+  exit-address-family
+!
+
+# Commit and save
+commit && save
+
+# Verify BGP sessions
+show bgp summary
+```
+
+### Step 3: Verify BGP Sessions
+
+```bash
+# Check BGP sessions on router
+show bgp summary
+
+# Check MetalLB speaker logs
+kubectl logs -n metallb-system -l app=metallb -l component=speaker --tail=50
+
+# Verify BGP configuration in Kubernetes
+kubectl get bgppeer,ipaddresspool,bgpadvertisement -n metallb-system
+```
+
+Expected BGP session output:
+```
+Neighbor        V    AS MsgRcvd MsgSent   TblVer  InQ OutQ Up/Down  State/PfxRcd
+10.2.0.101      4 65001     123     124        0    0    0 00:05:30        1
+10.2.0.102      4 65002     125     126        0    0    0 00:05:28        1
+10.2.0.103      4 65003     124     125        0    0    0 00:05:32        1
+```
+
+### Step 4: Test Anycast Connectivity
+
+```bash
+# Test from multiple network locations
+curl http://10.41.0.100/admin/  # Pi-hole web interface
+nslookup example.com 10.41.0.100  # DNS resolution
+
+# Test from different nodes
+kubectl get nodes -o wide
+kubectl debug node/k3s-worker-01 -it --image=busybox -- nslookup example.com 10.41.0.100
+```
+
+### Step 5: Update Network Routing
+
+#### Remove Old Static Routes
+```bash
+# Remove static routes to specific nodes (if any)
+# These are no longer needed with anycast
+```
+
+#### Add Anycast Route (if needed)
+```bash
+# Add anycast route to your network
+ip route add 10.41.0.0/16 via 10.2.0.1
+
+# Or configure on your main router/firewall
+```
+
+## 🔄 Rollback Procedure
+
+If issues occur during migration, you can rollback:
+
+```bash
+# Run the rollback script generated during migration
+/tmp/metallb-migration-backup/rollback.sh
+
+# Or manually restore from backup
+kubectl apply -f /tmp/metallb-migration-backup/ipaddresspool-backup.yaml
+kubectl apply -f /tmp/metallb-migration-backup/l2advertisement-backup.yaml
+kubectl apply -f /tmp/metallb-migration-backup/loadbalancer-services-backup.yaml
+```
+
+## 🔍 Troubleshooting
+
+### BGP Sessions Not Establishing
+
+**Symptoms**: No BGP peers in `show bgp summary`
+
+**Solutions**:
+```bash
+# Check router configuration
+show bgp neighbors
+
+# Check MetalLB speaker logs
+kubectl logs -n metallb-system -l app=metallb -l component=speaker
+
+# Verify network connectivity
+ping 10.2.0.101
+telnet 10.2.0.101 179
+
+# Check firewall rules
+iptables -L | grep 179
+```
+
+### Routes Not Advertised
+
+**Symptoms**: BGP sessions up but no routes
+
+**Solutions**:
+```bash
+# Check IP address pools
+kubectl get ipaddresspool -n metallb-system
+
+# Check BGP advertisements
+kubectl get bgpadvertisement -n metallb-system
+
+# Verify LoadBalancer services
+kubectl get svc -A -o wide --field-selector spec.type=LoadBalancer
+```
+
+### Services Not Reachable
+
+**Symptoms**: BGP routes present but services unreachable
+
+**Solutions**:
+```bash
+# Check service endpoints
+kubectl get endpoints -n pihole pihole-dns
+kubectl get endpoints -n pihole pihole-web
+
+# Verify pod health
+kubectl get pods -n pihole
+
+# Check node connectivity
+kubectl get nodes -o wide
+```
+
+## 📊 Verification Checklist
+
+After migration, verify these items:
+
+- [ ] BGP sessions established on router
+- [ ] MetalLB speaker logs show BGP peer connections
+- [ ] LoadBalancer services have IPs from BGP pool
+- [ ] Pi-hole web interface accessible via anycast IP
+- [ ] DNS resolution working via anycast IP
+- [ ] Services accessible from multiple network locations
+- [ ] No L2Advertisement configurations remaining
+- [ ] BGP advertisements active in MetalLB
+
+## 🎉 Migration Benefits
+
+After successful migration, you'll have:
+
+### High Availability
+- Automatic failover between nodes
+- No single points of failure
+- Load distribution across all nodes
+
+### Scalability
+- Easy addition of new nodes
+- Automatic BGP session establishment
+- No manual routing configuration
+
+### Operational Excellence
+- No static routes to manage
+- Centralized BGP configuration
+- Monitoring and alerting capabilities
+
+## 📚 Additional Resources
+
+- [MetalLB BGP Documentation](https://metallb.universe.tf/concepts/bgp/)
+- [UniFi UDM Pro BGP Configuration](https://help.ui.com/hc/en-us/articles/360048645634)
+- [FRR BGP Configuration](https://docs.frrouting.org/en/latest/bgp.html)
+- [BGP Best Practices](https://tools.ietf.org/html/rfc4271)
+
+## 🆘 Support
+
+If you encounter issues:
+
+1. Check the troubleshooting section above
+2. Review MetalLB speaker logs
+3. Verify router BGP configuration
+4. Test network connectivity
+5. Use the rollback procedure if needed
+
+Remember: The migration includes automatic backups and rollback capabilities, so you can safely test and revert if needed.

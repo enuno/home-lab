@@ -1,0 +1,71 @@
+---
+# BGP Monitoring Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bgp-monitoring-config
+  namespace: metallb-monitoring
+  labels:
+    app: bgp-monitoring
+data:
+  monitoring.conf: |
+    # BGP Monitoring Configuration
+    [bgp]
+    # Router configuration
+    router_ip = "{{ metallb_bgp_router_ip }}"
+    router_asn = {{ metallb_bgp_asn }}
+
+    # Cluster nodes
+{% for node_ip in metallb_nodes %}
+    node_{{ loop.index }}_ip = "{{ node_ip }}"
+    node_{{ loop.index }}_asn = {{ metallb_node_asn_base + loop.index0 }}
+{% endfor %}
+
+    # Monitoring intervals
+    check_interval = 30
+    timeout = 10
+
+    # Alerting thresholds
+    session_down_threshold = 1
+    route_count_threshold = 0
+
+    # Logging
+    log_level = "INFO"
+    log_format = "json"
+
+  prometheus.yml: |
+    global:
+      scrape_interval: 30s
+      evaluation_interval: 30s
+
+    rule_files:
+      - "bgp_rules.yml"
+
+    scrape_configs:
+      - job_name: 'bgp-monitoring'
+        static_configs:
+          - targets: ['localhost:8080']
+        scrape_interval: 30s
+        metrics_path: /metrics
+
+  bgp_rules.yml: |
+    groups:
+      - name: bgp.rules
+        rules:
+          - alert: BGPSessionDown
+            expr: bgp_session_state == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "BGP session down"
+              description: "BGP session to {{ "{{ $labels.neighbor }}" }} is down"
+
+          - alert: BGPNoRoutes
+            expr: bgp_routes_advertised == 0
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "No BGP routes advertised"
+              description: "No BGP routes are being advertised to {{ "{{ $labels.neighbor }}" }}"

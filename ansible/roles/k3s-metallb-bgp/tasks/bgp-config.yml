@@ -1,0 +1,72 @@
+---
+# BGP configuration tasks for MetalLB
+
+- name: Gather cluster node information
+  ansible.builtin.set_fact:
+    metallb_nodes: "{{ groups['k3s_cluster'] | map('extract', hostvars) | map(attribute='ansible_host') | list }}"
+
+- name: Generate node ASN mapping
+  ansible.builtin.set_fact:
+    metallb_node_asn_map: "{{ metallb_nodes | map('regex_replace', '^(\\d+\\.\\d+\\.\\d+\\.\\d+)', '\\1:' + metallb_node_asn_base | string) | list }}"
+  vars:
+    metallb_node_asn_base: "{{ metallb_node_asn_base | default(65001) }}"
+
+- name: Create MetalLB BGP peer configuration
+  ansible.builtin.template:
+    src: metallb-bgp-peer.yaml.j2
+    dest: /tmp/metallb-bgp-peer.yaml
+    mode: "0644"
+  register: bgp_peer_config
+
+- name: Create MetalLB BGP IPAddressPool configuration
+  ansible.builtin.template:
+    src: metallb-bgp-pool.yaml.j2
+    dest: /tmp/metallb-bgp-pool.yaml
+    mode: "0644"
+  register: bgp_pool_config
+
+- name: Create MetalLB BGP advertisement configuration
+  ansible.builtin.template:
+    src: metallb-bgp-advertisement.yaml.j2
+    dest: /tmp/metallb-bgp-advertisement.yaml
+    mode: "0644"
+  register: bgp_advertisement_config
+
+- name: Apply MetalLB BGP peer configuration
+  ansible.builtin.command: kubectl apply -f /tmp/metallb-bgp-peer.yaml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: bgp_peer_apply
+  changed_when: "'created' in bgp_peer_apply.stdout or 'configured' in bgp_peer_apply.stdout"
+
+- name: Apply MetalLB BGP IPAddressPool configuration
+  ansible.builtin.command: kubectl apply -f /tmp/metallb-bgp-pool.yaml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: bgp_pool_apply
+  changed_when: "'created' in bgp_pool_apply.stdout or 'configured' in bgp_pool_apply.stdout"
+
+- name: Apply MetalLB BGP advertisement configuration
+  ansible.builtin.command: kubectl apply -f /tmp/metallb-bgp-advertisement.yaml
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: bgp_advertisement_apply
+  changed_when: "'created' in bgp_advertisement_apply.stdout or 'configured' in bgp_advertisement_apply.stdout"
+
+- name: Verify BGP configuration
+  ansible.builtin.command: kubectl get bgppeer,ipaddresspool,bgpadvertisement -n metallb-system
+  environment:
+    KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+  register: bgp_status
+  changed_when: false
+
+- name: Display BGP configuration status
+  ansible.builtin.debug:
+    msg: |
+      MetalLB BGP Configuration Applied!
+
+      BGP Peer: {{ metallb_bgp_router_ip }} (ASN: {{ metallb_bgp_asn }})
+      Node ASNs: {{ metallb_node_asn_base }} - {{ metallb_node_asn_base + metallb_nodes | length - 1 }}
+
+      Status:
+      {{ bgp_status.stdout }}

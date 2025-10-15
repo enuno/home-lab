@@ -1,0 +1,356 @@
+---
+# K3s MetalLB Migration Playbook: L2 → BGP (L3)
+#
+# This playbook safely migrates from MetalLB L2 mode to BGP mode
+# with zero-downtime transition and rollback capabilities.
+#
+# Prerequisites:
+# - K3s cluster running with MetalLB L2 configuration
+# - Router supporting BGP (UniFi UDM Pro, FRR, etc.)
+# - Backup of current configuration
+#
+# Usage:
+#   ansible-playbook -i inventory/k3s-cluster.ini playbooks/k3s-metallb-migration.yml
+#
+# Migration Steps:
+#   1. Backup current L2 configuration
+#   2. Deploy BGP configuration alongside L2
+#   3. Configure router BGP
+#   4. Verify BGP sessions
+#   5. Switch services to BGP mode
+#   6. Cleanup L2 configuration
+#   7. Update network routing
+
+- name: MetalLB L2 to BGP Migration
+  hosts: k3s_masters[0]
+  become: yes
+  vars:
+    # Migration configuration
+    metallb_migration_enabled: true
+    metallb_migration_backup_dir: "/tmp/metallb-migration-backup"
+    metallb_migration_rollback_enabled: true
+
+    # BGP configuration (override as needed)
+    metallb_router_type: "unifi" # Change to your router type
+    metallb_bgp_router_ip: "10.2.0.1" # Your router IP
+    metallb_bgp_asn: 65000
+    metallb_node_asn_base: 65001
+
+  tasks:
+    - name: Pre-migration validation
+      block:
+        - name: Check MetalLB L2 configuration exists
+          ansible.builtin.command: kubectl get ipaddresspool,l2advertisement -n metallb-system
+          environment:
+            KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+          register: metallb_l2_status
+          changed_when: false
+
+        - name: Check LoadBalancer services
+          ansible.builtin.command: kubectl get svc -A -o wide --field-selector spec.type=LoadBalancer
+          environment:
+            KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+          register: loadbalancer_services
+          changed_when: false
+
+        - name: Display pre-migration status
+          ansible.builtin.debug:
+            msg: |
+              Pre-Migration Status:
+
+              Current L2 Configuration:
+              {{ metallb_l2_status.stdout }}
+
+              LoadBalancer Services:
+              {{ loadbalancer_services.stdout }}
+
+              Migration will proceed with:
+              - Router Type: {{ metallb_router_type }}
+              - Router IP: {{ metallb_bgp_router_ip }}
+              - Router ASN: {{ metallb_bgp_asn }}
+              - Node ASN Range: {{ metallb_node_asn_base }} - {{ metallb_node_asn_base + groups['k3s_cluster'] | length - 1 }}
+
+    - name: Create migration backup directory
+      ansible.builtin.file:
+        path: "{{ metallb_migration_backup_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Backup current MetalLB L2 configuration
+      block:
+        - name: Backup IPAddressPool configurations
+          ansible.builtin.command: kubectl get ipaddresspool -n metallb-system -o yaml
+          environment:
+            KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+          register: ip_pool_backup
+          changed_when: false
+
+        - name: Save IPAddressPool backup
+          ansible.builtin.copy:
+            content: "{{ ip_pool_backup.stdout }}"
+            dest: "{{ metallb_migration_backup_dir }}/ipaddresspool-backup.yaml"
+            mode: "0644"
+
+        - name: Backup L2Advertisement configurations
+          ansible.builtin.command: kubectl get l2advertisement -n metallb-system -o yaml
+          environment:
+            KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+          register: l2_adv_backup
+          changed_when: false
+
+        - name: Save L2Advertisement backup
+          ansible.builtin.copy:
+            content: "{{ l2_adv_backup.stdout }}"
+            dest: "{{ metallb_migration_backup_dir }}/l2advertisement-backup.yaml"
+            mode: "0644"
+
+        - name: Backup current LoadBalancer services
+          ansible.builtin.command: kubectl get svc -A -o yaml --field-selector spec.type=LoadBalancer
+          environment:
+            KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+          register: svc_backup
+          changed_when: false
+
+        - name: Save LoadBalancer services backup
+          ansible.builtin.copy:
+            content: "{{ svc_backup.stdout }}"
+            dest: "{{ metallb_migration_backup_dir }}/loadbalancer-services-backup.yaml"
+            mode: "0644"
+
+        - name: Create rollback script
+          ansible.builtin.template:
+            src: metallb-rollback.sh.j2
+            dest: "{{ metallb_migration_backup_dir }}/rollback.sh"
+            mode: "0755"
+
+    - name: Deploy BGP configuration alongside L2
+      block:
+        - name: Include MetalLB BGP role
+          ansible.builtin.include_role:
+            name: k3s-metallb-bgp
+          vars:
+            metallb_bgp_ip_pools:
+              - name: "bgp-default"
+                addresses: ["10.41.0.0/16"]
+                auto_assign: true
+            metallb_bgp_advertisements:
+              - name: "bgp-default"
+                ip_address_pools: ["bgp-default"]
+                communities: ["65535:65282"]
+
+        - name: Verify BGP configuration deployed
+          ansible.builtin.command: kubectl get bgppeer,ipaddresspool,bgpadvertisement -n metallb-system
+          environment:
+            KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+          register: bgp_config_status
+          changed_when: false
+
+        - name: Display BGP configuration status
+          ansible.builtin.debug:
+            msg: |
+              BGP Configuration Deployed:
+              {{ bgp_config_status.stdout }}
+
+    - name: Router configuration instructions
+      block:
+        - name: Generate router configuration files
+          ansible.builtin.include_role:
+            name: k3s-metallb-bgp
+            tasks_from: router-config
+
+        - name: Display router configuration instructions
+          ansible.builtin.debug:
+            msg: |
+              Router Configuration Required!
+
+              Configuration files generated in: {{ metallb_router_config_dir }}/
+
+              {% if metallb_router_type == 'unifi' %}
+              UniFi UDM Pro Configuration:
+              1. SSH to your UDM Pro: ssh admin@{{ metallb_bgp_router_ip }}
+              2. Enter configuration mode: configure
+              3. Apply commands from: {{ metallb_router_config_dir }}/unifi-cli-commands.txt
+              4. Commit and save: commit && save
+              5. Verify BGP: show bgp summary
+              {% else %}
+              {{ metallb_router_type | title }} Configuration:
+              1. Review: {{ metallb_router_config_dir }}/{{ metallb_router_type }}-bgp.conf
+              2. Apply configuration to your router
+              3. Run deployment script: {{ metallb_router_config_dir }}/deploy-router-config.sh
+              {% endif %}
+
+              After router configuration, continue with the migration.
+
+    - name: Wait for router configuration
+      block:
+        - name: Pause for router configuration
+          ansible.builtin.pause:
+            prompt: |
+              Please configure your router with the generated BGP configuration.
+
+              For UniFi UDM Pro:
+              - SSH to: {{ metallb_bgp_router_ip }}
+              - Apply commands from: {{ metallb_router_config_dir }}/unifi-cli-commands.txt
+              - Verify with: show bgp summary
+
+              Press ENTER when router BGP configuration is complete and sessions are established.
+
+    - name: Verify BGP sessions
+      block:
+        - name: Check MetalLB speaker logs for BGP sessions
+          ansible.builtin.command: kubectl logs -n metallb-system -l app=metallb -l component=speaker --tail=50
+          environment:
+            KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+          register: speaker_logs
+          changed_when: false
+
+        - name: Display speaker logs
+          ansible.builtin.debug:
+            msg: |
+              MetalLB Speaker Logs:
+              {{ speaker_logs.stdout }}
+
+        - name: Verify BGP peer status
+          ansible.builtin.command: kubectl get bgppeer -n metallb-system -o wide
+          environment:
+            KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+          register: bgp_peer_status
+          changed_when: false
+
+        - name: Display BGP peer status
+          ansible.builtin.debug:
+            msg: |
+              BGP Peer Status:
+              {{ bgp_peer_status.stdout }}
+
+    - name: Migrate services to BGP
+      block:
+        - name: Update Pi-hole DNS service to use BGP pool
+          ansible.builtin.patch:
+            path: /tmp/pihole-dns-bgp.yaml
+            content: |
+              metadata:
+                annotations:
+                  metallb.universe.tf/address-pool: "bgp-default"
+          create: true
+          register: pihole_dns_patch
+
+        - name: Update Pi-hole Web service to use BGP pool
+          ansible.builtin.patch:
+            path: /tmp/pihole-web-bgp.yaml
+            content: |
+              metadata:
+                annotations:
+                  metallb.universe.tf/address-pool: "bgp-default"
+          create: true
+          register: pihole_web_patch
+
+        - name: Apply updated Pi-hole DNS service
+          ansible.builtin.command: kubectl apply -f /tmp/pihole-dns-bgp.yaml
+          environment:
+            KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+          when: pihole_dns_patch is defined
+
+        - name: Apply updated Pi-hole Web service
+          ansible.builtin.command: kubectl apply -f /tmp/pihole-web-bgp.yaml
+          environment:
+            KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+          when: pihole_web_patch is defined
+
+    - name: Test BGP connectivity
+      block:
+        - name: Wait for services to get BGP IPs
+          ansible.builtin.pause:
+            seconds: 30
+
+        - name: Check LoadBalancer service IPs
+          ansible.builtin.command: kubectl get svc -A -o wide --field-selector spec.type=LoadBalancer
+          environment:
+            KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+          register: bgp_service_status
+          changed_when: false
+
+        - name: Display BGP service status
+          ansible.builtin.debug:
+            msg: |
+              BGP LoadBalancer Services:
+              {{ bgp_service_status.stdout }}
+
+        - name: Test Pi-hole connectivity
+          ansible.builtin.uri:
+            url: "http://10.41.0.100/admin/"
+            method: GET
+            status_code: 200
+          register: pihole_test
+          ignore_errors: true
+
+        - name: Display connectivity test results
+          ansible.builtin.debug:
+            msg: |
+              Connectivity Test Results:
+              Pi-hole Web Interface: {{ "PASS" if pihole_test.status == 200 else "FAIL" }}
+
+    - name: Cleanup L2 configuration
+      block:
+        - name: Pause before cleanup
+          ansible.builtin.pause:
+            prompt: |
+              BGP migration appears successful!
+
+              Ready to cleanup L2 configuration?
+              This will remove the old L2 advertisements.
+
+              Press ENTER to proceed with cleanup, or Ctrl+C to abort.
+
+        - name: Remove L2Advertisement configurations
+          ansible.builtin.command: kubectl delete l2advertisement -n metallb-system --all
+          environment:
+            KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+          register: l2_cleanup
+          changed_when: "'deleted' in l2_cleanup.stdout"
+
+        - name: Remove old IPAddressPool (if different from BGP pool)
+          ansible.builtin.command: kubectl delete ipaddresspool -n metallb-system default
+          environment:
+            KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+          register: pool_cleanup
+          changed_when: "'deleted' in pool_cleanup.stdout"
+          ignore_errors: true
+
+    - name: Migration completion
+      block:
+        - name: Final verification
+          ansible.builtin.command: kubectl get bgppeer,ipaddresspool,bgpadvertisement,l2advertisement -n metallb-system
+          environment:
+            KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+          register: final_status
+          changed_when: false
+
+        - name: Display migration completion status
+          ansible.builtin.debug:
+            msg: |
+              🎉 MetalLB Migration Complete!
+
+              Final Configuration Status:
+              {{ final_status.stdout }}
+
+              Migration Summary:
+              ✅ L2 configuration backed up to: {{ metallb_migration_backup_dir }}/
+              ✅ BGP configuration deployed and active
+              ✅ Services migrated to BGP anycast
+              ✅ L2 configuration cleaned up
+
+              Next Steps:
+              1. Update your network routing (remove static routes to specific nodes)
+              2. Add anycast route: ip route add 10.41.0.0/16 via {{ metallb_bgp_router_ip }}
+              3. Test connectivity from multiple network locations
+              4. Monitor BGP sessions and service health
+
+              Rollback Available:
+              If issues occur, run: {{ metallb_migration_backup_dir }}/rollback.sh
+
+  handlers:
+    - name: Restart MetalLB Speaker
+      ansible.builtin.command: kubectl rollout restart deployment/speaker -n metallb-system
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml

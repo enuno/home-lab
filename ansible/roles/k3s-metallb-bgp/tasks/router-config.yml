@@ -1,0 +1,79 @@
+---
+# Router configuration tasks for BGP peering
+
+- name: Create router configuration directory
+  ansible.builtin.file:
+    path: "{{ metallb_router_config_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Generate FRR router configuration
+  ansible.builtin.template:
+    src: frr-bgp-config.j2
+    dest: "{{ metallb_router_config_dir }}/frr-bgp.conf"
+    mode: "0644"
+  when: metallb_router_type | default('frr') == 'frr'
+
+- name: Generate BIRD router configuration
+  ansible.builtin.template:
+    src: bird-bgp-config.j2
+    dest: "{{ metallb_router_config_dir }}/bird-bgp.conf"
+    mode: "0644"
+  when: metallb_router_type == 'bird'
+
+- name: Generate Cisco router configuration
+  ansible.builtin.template:
+    src: cisco-bgp-config.j2
+    dest: "{{ metallb_router_config_dir }}/cisco-bgp.conf"
+    mode: "0644"
+  when: metallb_router_type == 'cisco'
+
+- name: Generate Juniper router configuration
+  ansible.builtin.template:
+    src: juniper-bgp-config.j2
+    dest: "{{ metallb_router_config_dir }}/juniper-bgp.conf"
+    mode: "0644"
+  when: metallb_router_type == 'juniper'
+
+- name: Generate Ubiquiti UniFi UDM Pro JSON configuration
+  ansible.builtin.template:
+    src: unifi-bgp-config.j2
+    dest: "{{ metallb_router_config_dir }}/unifi-bgp.json"
+    mode: "0644"
+  when: metallb_router_type == 'unifi'
+
+- name: Generate Ubiquiti UniFi UDM Pro CLI configuration
+  ansible.builtin.template:
+    src: unifi-cli-config.j2
+    dest: "{{ metallb_router_config_dir }}/unifi-cli-commands.txt"
+    mode: "0644"
+  when: metallb_router_type == 'unifi'
+
+- name: Create router deployment script
+  ansible.builtin.template:
+    src: deploy-router-config.sh.j2
+    dest: "{{ metallb_router_config_dir }}/deploy-router-config.sh"
+    mode: "0755"
+
+- name: Display router configuration instructions
+  ansible.builtin.debug:
+    msg: |
+      Router Configuration Generated!
+
+      Configuration files created in: {{ metallb_router_config_dir }}/
+
+      Next Steps:
+      1. Review the generated {{ metallb_router_type }}-bgp.conf file
+      2. Apply the configuration to your router
+      3. Run the deployment script: {{ metallb_router_config_dir }}/deploy-router-config.sh
+
+      Router Type: {{ metallb_router_type | default('frr') }}
+      BGP ASN: {{ metallb_bgp_asn }}
+      Cluster Nodes: {{ metallb_nodes | length }} nodes
+
+      {% if metallb_router_type == 'unifi' %}
+      UniFi UDM Pro Configuration:
+      - JSON Config: {{ metallb_router_config_dir }}/unifi-bgp.json
+      - CLI Commands: {{ metallb_router_config_dir }}/unifi-cli-commands.txt
+      - Apply via SSH: ssh admin@{{ metallb_bgp_router_ip }}
+      {% endif %}

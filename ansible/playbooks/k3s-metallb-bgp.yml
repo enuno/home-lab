@@ -1,0 +1,93 @@
+---
+# K3s MetalLB BGP Configuration Playbook
+#
+# This playbook configures MetalLB with BGP for anycast load balancing
+# across all cluster nodes, eliminating the need for static routes to
+# specific nodes.
+#
+# Prerequisites:
+# - K3s cluster must be deployed and running
+# - MetalLB must be installed (handled by k3s-master role)
+# - Router must support BGP (UniFi UDM Pro, FRR, BIRD, Cisco, Juniper)
+#
+# Usage:
+#   ansible-playbook -i inventory/k3s-cluster.ini playbooks/k3s-metallb-bgp.yml
+#
+# Configuration:
+#   Set metallb_router_type in group_vars/k3s_cluster.yml:
+#     metallb_router_type: "unifi"  # for UniFi UDM Pro
+#     metallb_router_type: "frr"    # for FRR
+#     metallb_router_type: "bird"   # for BIRD
+#
+
+- name: Configure MetalLB BGP for Anycast Load Balancing
+  hosts: k3s_masters[0]
+  become: yes
+  vars:
+    # Override default router type if needed
+    # metallb_router_type: "unifi"  # UniFi UDM Pro
+    # metallb_router_type: "frr"    # FRR
+    # metallb_router_type: "bird"   # BIRD
+
+    # BGP configuration
+    metallb_bgp_asn: 65000
+    metallb_bgp_router_ip: "10.2.0.1" # Your router IP
+    metallb_node_asn_base: 65001
+
+    # IP pool configuration
+    metallb_bgp_ip_pools:
+      - name: "default"
+        addresses: ["10.41.0.0/16"]
+        auto_assign: true
+
+    # BGP advertisements
+    metallb_bgp_advertisements:
+      - name: "default"
+        ip_address_pools: ["default"]
+        communities: ["65535:65282"]
+
+  tasks:
+    - name: Include MetalLB BGP role
+      ansible.builtin.include_role:
+        name: k3s-metallb-bgp
+      tags: [metallb, bgp, config]
+
+    - name: Verify BGP configuration
+      ansible.builtin.command: kubectl get bgppeer,ipaddresspool,bgpadvertisement -n metallb-system -o wide
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: bgp_status
+      changed_when: false
+
+    - name: Display BGP configuration status
+      ansible.builtin.debug:
+        msg: |
+          MetalLB BGP Configuration Complete!
+
+          Configuration Summary:
+          - Router Type: {{ metallb_router_type | default('frr') }}
+          - Router IP: {{ metallb_bgp_router_ip }}
+          - Router ASN: {{ metallb_bgp_asn }}
+          - Node ASN Range: {{ metallb_node_asn_base }} - {{ metallb_node_asn_base + groups['k3s_cluster'] | length - 1 }}
+          - IP Pool: {{ metallb_bgp_ip_pools[0].addresses[0] }}
+
+          Next Steps:
+          1. Apply router configuration from: /tmp/metallb-router-config/
+          2. Verify BGP sessions are established
+          3. Test anycast connectivity from any node
+
+          Current BGP Status:
+          {{ bgp_status.stdout }}
+
+          {% if metallb_router_type | default('frr') == 'unifi' %}
+          UniFi UDM Pro Configuration:
+          - SSH to router: ssh admin@{{ metallb_bgp_router_ip }}
+          - Apply CLI commands: /tmp/metallb-router-config/unifi-cli-commands.txt
+          - Verify: show bgp summary
+          {% endif %}
+
+  handlers:
+    - name: Restart MetalLB
+      ansible.builtin.command: kubectl rollout restart deployment/speaker -n metallb-system
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml

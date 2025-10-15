@@ -1,0 +1,16 @@
+---
+# Main tasks for k3s-metallb-bgp role
+
+- name: Include BGP configuration tasks
+  ansible.builtin.include_tasks: bgp-config.yml
+  tags: [metallb, bgp, config]
+
+- name: Include router configuration tasks
+  ansible.builtin.include_tasks: router-config.yml
+  when: metallb_generate_router_config | default(true)
+  tags: [metallb, bgp, router]
+
+- name: Include monitoring tasks
+  ansible.builtin.include_tasks: monitoring.yml
+  when: metallb_bgp_monitoring_enabled | default(true)
+  tags: [metallb, bgp, monitoring]

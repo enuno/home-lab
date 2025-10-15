@@ -1,0 +1,16 @@
+---
+# MetalLB BGP IP Address Pool Configuration
+# This defines the IP ranges that MetalLB can advertise via BGP
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: {{ pool.name }}
+  namespace: metallb-system
+spec:
+  addresses:
+{% for address in pool.addresses %}
+    - {{ address }}
+{% endfor %}
+  autoAssign: {{ pool.auto_assign | default(true) }}
+  # Prevent IP conflicts with existing services
+  avoidBuggyIPs: true

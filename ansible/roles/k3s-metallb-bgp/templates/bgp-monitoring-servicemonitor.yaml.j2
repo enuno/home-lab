@@ -1,0 +1,21 @@
+---
+# BGP Monitoring ServiceMonitor for Prometheus Operator
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: bgp-monitoring
+  namespace: metallb-monitoring
+  labels:
+    app: bgp-monitoring
+    prometheus: kube-prometheus
+spec:
+  selector:
+    matchLabels:
+      app: bgp-monitoring
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+  - port: http
+    interval: 30s
+    path: /health
