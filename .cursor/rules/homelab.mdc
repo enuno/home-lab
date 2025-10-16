@@ -1,6 +1,6 @@
 ---
 description: Home Lab Infrastructure Development Standards
-globs: 
+globs:
   - "**/*.tf"
   - "**/*.yml"
   - "**/*.yaml"
@@ -175,7 +175,7 @@ haproxy.cfg:
   - frontend with SSL termination
   - backend pools with health checks
   - connection limits and timeouts
-  
+
 keepalived.conf:
   - VRRP instances
   - health check scripts
@@ -248,19 +248,19 @@ sub vcl_backend_response {
 ```hcl
 module "app" {
   source = "./modules/app"
-  
+
   # Multi-AZ deployment
   availability_zones = ["us-east-1a", "us-east-1b", "us-east-1c"]
-  
+
   # Auto Scaling
   min_size = 2
   max_size = 10
   desired_capacity = 3
-  
+
   # Load Balancer
   alb_target_group_arn = aws_lb_target_group.app.arn
   health_check_path = "/health"
-  
+
   # Monitoring
   enable_cloudwatch_alarms = true
   alarm_sns_topic = aws_sns_topic.alerts.arn
@@ -283,7 +283,7 @@ resource "google_compute_instance_group_manager" "app" {
     health_check      = google_compute_health_check.app.id
     initial_delay_sec = 300
   }
-  
+
   update_policy {
     type                  = "PROACTIVE"
     minimal_action       = "REPLACE"
@@ -358,7 +358,7 @@ resource "google_compute_instance_group_manager" "app" {
     "tag:client": ["admin@example.com"],
     "tag:cicd": ["admin@example.com"]
   },
-  
+
   "acls": [
     // Servers can talk to each other
     {
@@ -379,7 +379,7 @@ resource "google_compute_instance_group_manager" "app" {
       "dst": ["tag:server:22"]
     }
   ],
-  
+
   "ssh": [
     {
       "action": "accept",
@@ -388,7 +388,7 @@ resource "google_compute_instance_group_manager" "app" {
       "users": ["autogroup:member"]
     }
   ],
-  
+
   "autoApprovers": {
     "routes": {
       "10.0.0.0/8": ["tag:server"],
@@ -447,7 +447,7 @@ services:
       interval: 30s
       timeout: 3s
       retries: 3
-      
+
   db:
     image: postgres:15-alpine
     environment:
@@ -459,7 +459,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      
+
   redis:
     image: redis:7-alpine
     healthcheck:

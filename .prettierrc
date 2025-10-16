@@ -13,7 +13,7 @@
   "proseWrap": "preserve",
   "quoteProps": "as-needed",
   "embeddedLanguageFormatting": "auto",
-  
+
   "overrides": [
     {
       "files": "*.json",

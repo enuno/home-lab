@@ -28,11 +28,9 @@ rules:
   # Comments indentation - disabled for flexibility
   comments-indentation: disable
 
-  # Document start/end markers
-  document-start:
-    present: false  # Not required for all files
-  document-end:
-    present: false
+  # Document start/end markers - relaxed for home lab
+  document-start: disable
+  document-end: disable
 
   # Empty lines
   empty-lines:
@@ -86,10 +84,10 @@ rules:
     forbid-implicit-octal: true
     forbid-explicit-octal: true
 
-  # Quoted strings
+  # Quoted strings - relaxed for Ansible/K8s
   quoted-strings:
     quote-type: any
-    required: only-when-needed
+    required: false # Allow unquoted strings for flexibility
     extra-required: []
     extra-allowed: []
     allow-quoted-quotes: false
@@ -100,12 +98,12 @@ rules:
   # Truthy values - relaxed for Ansible/K8s
   truthy:
     allowed-values:
-      - 'true'
-      - 'false'
-      - 'yes'
-      - 'no'
-      - 'on'
-      - 'off'
+      - "true"
+      - "false"
+      - "yes"
+      - "no"
+      - "on"
+      - "off"
     check-keys: false
 
 # Ignore patterns
@@ -119,14 +117,14 @@ ignore: |
   *.min.yml
   vendor/
   .cache/
-  
+
   # Generated files
   **/charts/**/templates/
   .helm/
-  
+
   # Test fixtures
   **/fixtures/**
   **/testdata/**
-  
+
   # CI/CD generated files
   .github/workflows/*.generated.yml

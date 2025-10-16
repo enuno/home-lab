@@ -66,7 +66,7 @@ terraform {
 resource "aws_instance" "server" {
   for_each      = var.instances
   instance_type = each.value.type
-  
+
   # Always tag resources
   tags = {
     Name        = each.key
@@ -74,7 +74,7 @@ resource "aws_instance" "server" {
     ManagedBy   = "terraform"
     Project     = var.project_name
   }
-  
+
   # Implement lifecycle rules
   lifecycle {
     create_before_destroy = true
@@ -100,10 +100,10 @@ data "aws_vpc" "existing" {
   hosts: webservers
   become: true
   gather_facts: true
-  
+
   vars:
     app_port: 8080
-    
+
   tasks:
     # Always name tasks descriptively
     - name: Install nginx web server
@@ -111,7 +111,7 @@ data "aws_vpc" "existing" {
         name: nginx
         state: present
       tags: [packages, nginx]
-    
+
     # Use blocks for error handling
     - name: Deploy application configuration
       block:
@@ -124,21 +124,21 @@ data "aws_vpc" "existing" {
             mode: '0644'
             backup: true
           notify: Restart application
-          
+
         - name: Validate configuration
           ansible.builtin.command: app-validate-config
           changed_when: false
-          
+
       rescue:
         - name: Restore from backup on failure
           ansible.builtin.command: app-restore-config
-          
+
       always:
         - name: Ensure service is running
           ansible.builtin.service:
             name: app
             state: started
-  
+
   handlers:
     - name: Restart application
       ansible.builtin.service:
@@ -178,7 +178,7 @@ spec:
       containers:
       - name: web-app
         image: myregistry/web-app:1.0.0
-        
+
         # Always define resource constraints
         resources:
           requests:
@@ -187,7 +187,7 @@ spec:
           limits:
             memory: "256Mi"
             cpu: "200m"
-        
+
         # Implement health checks
         livenessProbe:
           httpGet:
@@ -195,21 +195,21 @@ spec:
             port: 8080
           initialDelaySeconds: 30
           periodSeconds: 10
-        
+
         readinessProbe:
           httpGet:
             path: /ready
             port: 8080
           initialDelaySeconds: 5
           periodSeconds: 5
-        
+
         # Environment from ConfigMap and Secrets
         envFrom:
         - configMapRef:
             name: web-app-config
         - secretRef:
             name: web-app-secrets
-      
+
       # Security context
       securityContext:
         runAsNonRoot: true
@@ -271,41 +271,41 @@ class InfrastructureManager:
 
     def __init__(self, config_path: Path) -> None:
         """Initialize infrastructure manager.
-        
+
         Args:
             config_path: Path to configuration file
-            
+
         Raises:
             FileNotFoundError: If config file doesn't exist
         """
         if not config_path.exists():
             raise FileNotFoundError(f"Config not found: {config_path}")
-        
+
         self.config_path = config_path
         self._config: Optional[Dict] = None
 
     def deploy_service(
-        self, 
-        service_name: str, 
+        self,
+        service_name: str,
         environment: str = "dev",
         dry_run: bool = False
     ) -> bool:
         """Deploy a service to specified environment.
-        
+
         Args:
             service_name: Name of service to deploy
             environment: Target environment (dev/staging/prod)
             dry_run: If True, simulate deployment without changes
-            
+
         Returns:
             True if deployment successful, False otherwise
-            
+
         Raises:
             ValueError: If service_name is invalid
         """
         if not service_name:
             raise ValueError("Service name cannot be empty")
-        
+
         try:
             logger.info(
                 "Deploying service %s to %s (dry_run=%s)",
@@ -313,11 +313,11 @@ class InfrastructureManager:
                 environment,
                 dry_run
             )
-            
+
             # Implementation here
-            
+
             return True
-            
+
         except Exception as exc:
             logger.error("Deployment failed: %s", exc, exc_info=True)
             return False

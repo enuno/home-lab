@@ -35,13 +35,13 @@ When responding to queries, assume:
 ### When Generating Infrastructure Code:
 
 1. **Start with Architecture**
-```
+   ```
    Before writing code, I'll outline the architecture:
    - Components involved
    - Data flow
    - HA considerations
    - Monitoring hooks
-```
+   ```
 
 2. **Provide Complete Solutions**
    - Include error handling

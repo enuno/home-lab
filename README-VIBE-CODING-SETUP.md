@@ -168,7 +168,7 @@ Docker: Latest stable
 
 ```markdown
 **Good Prompt:**
-"Create a Terraform module for deploying a highly available PostgreSQL 
+"Create a Terraform module for deploying a highly available PostgreSQL
 cluster on AWS using the latest Terraform 1.13 syntax. Include:
 - Multi-AZ deployment with automatic failover
 - Patroni for HA coordination

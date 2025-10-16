@@ -165,10 +165,10 @@ resource "aws_instance" "web" {
 
 **Architecture Planning**:
 ```
-You: "I need to design a HA PostgreSQL cluster for my home lab. 
+You: "I need to design a HA PostgreSQL cluster for my home lab.
      I have 3 VMs with 4GB RAM each."
 
-Copilot: [Provides architecture diagram, component list, 
+Copilot: [Provides architecture diagram, component list,
           implementation steps with Terraform + Ansible]
 ```
 
@@ -430,15 +430,15 @@ def process_terraform_state_file(
     validate_checksums: bool = True
 ) -> Dict[str, Any]:
     """Process Terraform state file with validation.
-    
+
     Args:
         state_file_path: Path to .tfstate file
         backup_dir: Directory for state backups
         validate_checksums: Whether to validate file checksums
-        
+
     Returns:
         Dictionary with processing results
-        
+
     Raises:
         ValueError: If state file is invalid
         IOError: If file operations fail
@@ -541,7 +541,7 @@ def process_terraform_state_file(
 
 ### Provide Feedback
 
-**Good suggestions**: 
+**Good suggestions**:
 - Thumbs up in suggestion tooltip
 - Share patterns that work well
 

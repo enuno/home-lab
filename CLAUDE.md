@@ -95,22 +95,22 @@ Firewall/Router (pfSense/OPNsense)
 Load Balancer Tier
    ├── HAProxy Primary (keepalived VIP)
    └── HAProxy Secondary (keepalived backup)
-   
+
 Application Tier
    ├── Web Server 1 (Docker/K8s)
    ├── Web Server 2 (Docker/K8s)
    └── Web Server 3 (Docker/K8s)
-   
+
 Caching Tier
    ├── Redis Sentinel 1
    ├── Redis Sentinel 2
    └── Redis Sentinel 3
-   
+
 Database Tier
    ├── PostgreSQL Primary (Patroni)
    ├── PostgreSQL Replica 1 (streaming replication)
    └── PostgreSQL Replica 2 (streaming replication)
-   
+
 Storage Tier
    ├── TrueNAS Primary (NFS/iSCSI/SMB)
    └── TrueNAS Backup (replication target)
@@ -123,14 +123,14 @@ Control Plane (HA)
    ├── Master Node 1
    ├── Master Node 2
    └── Master Node 3
-   
+
 Worker Nodes
    ├── Worker 1 (general workloads)
    ├── Worker 2 (general workloads)
    ├── Worker 3 (general workloads)
    ├── GPU Worker 1 (ML/AI workloads)
    └── Storage Node (Rook/Ceph OSDs)
-   
+
 Ingress
    ├── Nginx Ingress Controller (DaemonSet)
    └── Cert-Manager (Let's Encrypt automation)
