@@ -61,8 +61,84 @@
           - zsh
           - git
           - curl
+          - ca-certificates
+          - gnupg
+          - lsb-release
         state: present
       tags: [packages]
+
+    - name: Check if Docker is already installed
+      ansible.builtin.command: docker --version
+      register: docker_check
+      changed_when: false
+      failed_when: false
+      tags: [docker]
+
+    - name: Display Docker installation status
+      ansible.builtin.debug:
+        msg: "Docker is {{ 'already installed: ' + docker_check.stdout if docker_check.rc == 0 else 'not installed, will install now' }}"
+      tags: [docker]
+
+    - name: Download Docker installation script
+      ansible.builtin.get_url:
+        url: https://get.docker.com
+        dest: /tmp/get-docker.sh
+        mode: '0755'
+      when: docker_check.rc != 0
+      tags: [docker]
+
+    - name: Install Docker using official script
+      ansible.builtin.command: sh /tmp/get-docker.sh
+      when: docker_check.rc != 0
+      changed_when: true
+      tags: [docker]
+
+    - name: Remove Docker installation script
+      ansible.builtin.file:
+        path: /tmp/get-docker.sh
+        state: absent
+      when: docker_check.rc != 0
+      tags: [docker]
+
+    - name: Add ansible user to docker group
+      ansible.builtin.user:
+        name: ansible
+        groups: docker
+        append: true
+      tags: [docker]
+
+    - name: Add elvis user to docker group
+      ansible.builtin.user:
+        name: elvis
+        groups: docker
+        append: true
+      tags: [docker]
+
+    - name: Install Docker Compose plugin
+      ansible.builtin.apt:
+        name: docker-compose-plugin
+        state: present
+        update_cache: true
+      tags: [docker]
+
+    - name: Ensure Docker service is started and enabled
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: true
+      tags: [docker]
+
+    - name: Verify Docker installation
+      ansible.builtin.command: docker run --rm hello-world
+      register: docker_test
+      changed_when: false
+      failed_when: false
+      tags: [docker, verify]
+
+    - name: Display Docker verification result
+      ansible.builtin.debug:
+        msg: "Docker verification: {{ 'SUCCESS - Docker is working correctly' if docker_test.rc == 0 else 'FAILED - Docker may not be properly installed' }}"
+      tags: [docker, verify]
 
     - name: Check if oh-my-zsh is already installed for ansible user
       ansible.builtin.stat:
@@ -105,6 +181,20 @@
         direction: incoming
       tags: [firewall, security]
 
+    - name: Get Docker version
+      ansible.builtin.command: docker --version
+      register: docker_version
+      changed_when: false
+      failed_when: false
+      tags: [always]
+
+    - name: Get Docker Compose version
+      ansible.builtin.command: docker compose version
+      register: docker_compose_version
+      changed_when: false
+      failed_when: false
+      tags: [always]
+
     - name: Display baseline configuration summary
       ansible.builtin.debug:
         msg: |
@@ -122,6 +212,14 @@
             - zsh (advanced shell)
             - git (version control)
             - curl (data transfer)
+            - ca-certificates, gnupg, lsb-release
+
+          Docker Configuration:
+            - {{ docker_version.stdout if docker_version.rc == 0 else 'Docker not installed' }}
+            - {{ docker_compose_version.stdout if docker_compose_version.rc == 0 else 'Docker Compose not installed' }}
+            - ansible user added to docker group
+            - elvis user added to docker group
+            - Docker service enabled and running
 
           Shell Configuration:
             - oh-my-zsh installed for ansible user
@@ -133,5 +231,10 @@
             - SSH access allowed
             - Default incoming policy: DENY
             - Passwordless sudo for elvis (administrative access)
+
+          Next Steps:
+            - Logout and login again for docker group to take effect
+            - Test Docker: docker run --rm hello-world
+            - Test Docker Compose: docker compose version
           ============================================
       tags: [always]
