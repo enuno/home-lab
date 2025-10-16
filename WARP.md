@@ -115,6 +115,78 @@ When creating implementation guides or documentation:
 - **Modularity:** Reusable modules/roles/playbooks for common patterns
 - **Idempotency:** Ensure scripts/playbooks can be run multiple times safely
 
+#### Ansible Vault Best Practices
+
+**CRITICAL REQUIREMENT**: When creating any file that will be encrypted with `ansible-vault`, you MUST follow this pattern:
+
+1. **Always Create a .template File First**:
+   - Create `filename.yml.template` before creating the encrypted file
+   - Template file contains placeholder values and documentation
+   - Template file is safe to commit to version control
+   - Example: `ansible/group_vars/service_vault.yml.template`
+
+2. **Template File Format**:
+   ```yaml
+   ---
+   # Service Vault Template - DO NOT ENCRYPT THIS FILE
+   # This is a reference for the encrypted vault file
+   # Generate keys at: https://service.example.com/admin/keys
+
+   service_api_key: "your-api-key-here"
+   service_password: "your-secure-password"
+   service_auth_token: "tskey-auth-..."
+   ```
+
+3. **Create Actual Vault File**:
+   - Copy template to actual filename (without .template)
+   - Replace placeholder values with real secrets
+   - Encrypt using `ansible-vault encrypt filename.yml`
+
+4. **Commit Both Files**:
+   ```bash
+   git add group_vars/service_vault.yml group_vars/service_vault.yml.template
+   git commit -m "feat: add service vault configuration"
+   ```
+
+**Why This Pattern Is Mandatory**:
+- **Documentation**: Shows required variables and expected format
+- **Onboarding**: New team members know what secrets are needed
+- **Recovery**: Template serves as backup if encrypted file is corrupted
+- **Security**: No secrets in template (safe to share/commit)
+- **Maintenance**: Easy to update structure across environments
+
+**Standard Directory Structure**:
+```
+ansible/group_vars/
+├── all_vault.yml              # Encrypted - Global secrets (Tailscale, etc.)
+├── all_vault.yml.template     # Unencrypted - Global secrets template
+├── haproxy_vault.yml          # Encrypted - HAProxy passwords
+├── haproxy_vault.yml.template # Unencrypted - HAProxy template
+├── k3s_cluster_vault.yml      # Encrypted - K3s cluster secrets
+└── k3s_cluster_vault.yml.template  # Unencrypted - K3s template
+```
+
+**Vault Management Commands**:
+```bash
+# Edit encrypted file (preferred method)
+ansible-vault edit ansible/group_vars/service_vault.yml
+
+# View encrypted content
+ansible-vault view ansible/group_vars/service_vault.yml
+
+# Encrypt new file
+ansible-vault encrypt ansible/group_vars/service_vault.yml
+
+# Decrypt for manual editing
+ansible-vault decrypt ansible/group_vars/service_vault.yml
+
+# Re-encrypt after manual editing
+ansible-vault encrypt ansible/group_vars/service_vault.yml
+
+# Change vault password
+ansible-vault rekey ansible/group_vars/service_vault.yml
+```
+
 ### Technology Recommendations
 
 When suggesting technologies:

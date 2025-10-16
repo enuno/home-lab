@@ -49,6 +49,64 @@ This is a home lab infrastructure project focused on virtualization, containeriz
 - Implement proper handlers for service restarts
 - Use `meta: flush_handlers` when immediate execution needed
 
+#### Ansible Vault Template Pattern (MANDATORY)
+
+**CRITICAL**: When creating any file that will be encrypted with `ansible-vault`:
+
+1. **Always Create .template File First**:
+   ```yaml
+   # File: ansible/group_vars/service_vault.yml.template
+   ---
+   # Service Vault Template - DO NOT ENCRYPT
+   # Reference for encrypted vault file
+   # Generate keys at: https://service.example.com/admin/keys
+
+   service_api_key: "your-api-key-here"
+   service_password: "your-password-here"
+   service_token: "your-token-here"
+   ```
+
+2. **Create Actual Vault File**:
+   - Copy template to filename without `.template`
+   - Replace placeholder values with real secrets
+   - Encrypt: `ansible-vault encrypt filename.yml`
+
+3. **Commit Both Files**:
+   ```bash
+   git add group_vars/service_vault.yml group_vars/service_vault.yml.template
+   ```
+
+4. **Standard Directory Structure**:
+   ```
+   ansible/group_vars/
+   ├── all_vault.yml              # Encrypted - Global secrets
+   ├── all_vault.yml.template     # Unencrypted - Template
+   ├── haproxy_vault.yml          # Encrypted - HAProxy secrets
+   └── haproxy_vault.yml.template # Unencrypted - Template
+   ```
+
+5. **Vault Operations**:
+   ```bash
+   # Edit (preferred)
+   ansible-vault edit group_vars/service_vault.yml
+
+   # View
+   ansible-vault view group_vars/service_vault.yml
+
+   # Encrypt/Decrypt
+   ansible-vault encrypt|decrypt group_vars/service_vault.yml
+
+   # Rekey (change password)
+   ansible-vault rekey group_vars/service_vault.yml
+   ```
+
+**Why This Pattern**:
+- Documentation of required variables
+- Safe reference for version control
+- Onboarding assistance
+- Recovery from corruption
+- No secrets exposed
+
 ### Kubernetes
 - Use YAML manifests or Helm charts
 - Namespace everything (except cluster-wide resources)

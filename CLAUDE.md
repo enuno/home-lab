@@ -265,6 +265,84 @@ home-lab/
 - **Secrets Management**: Use Ansible Vault, SOPS, or external secret managers
 - **Documentation**: Generate docs from code (terraform-docs, ansible-doc)
 
+#### Ansible Vault Best Practices
+
+**IMPORTANT**: When creating files that will be encrypted with `ansible-vault`, always follow this pattern:
+
+1. **Create Template File First** (`.template` suffix):
+   ```yaml
+   # File: ansible/group_vars/service_vault.yml.template
+   ---
+   # Service Vault Template - DO NOT ENCRYPT THIS FILE
+   # This is a reference template for the encrypted vault file
+   # Copy to service_vault.yml and add real values, then encrypt
+
+   # Example secrets
+   service_api_key: "your-api-key-here"
+   service_password: "your-password-here"
+   service_auth_token: "your-auth-token-here"
+   ```
+
+2. **Create Actual Vault File** (with real values):
+   ```yaml
+   # File: ansible/group_vars/service_vault.yml
+   ---
+   # Service Vault - ENCRYPT THIS FILE
+   # Encrypt using: ansible-vault encrypt group_vars/service_vault.yml
+
+   service_api_key: "real-api-key-value"
+   service_password: "real-password-value"
+   service_auth_token: "real-auth-token-value"
+   ```
+
+3. **Encrypt the Vault File**:
+   ```bash
+   ansible-vault encrypt ansible/group_vars/service_vault.yml
+   ```
+
+4. **Commit Both Files**:
+   ```bash
+   git add ansible/group_vars/service_vault.yml ansible/group_vars/service_vault.yml.template
+   git commit -m "feat: add service vault configuration"
+   ```
+
+**Why Use .template Files**:
+- Provides clear documentation of required variables
+- Shows expected format and structure
+- Safe to commit to version control (no secrets)
+- Helps new team members understand what secrets are needed
+- Serves as backup reference if vault file is corrupted
+- Makes it easy to recreate vault files in new environments
+
+**Vault Operations**:
+```bash
+# Edit encrypted file
+ansible-vault edit ansible/group_vars/service_vault.yml
+
+# View encrypted file
+ansible-vault view ansible/group_vars/service_vault.yml
+
+# Decrypt file (for editing manually)
+ansible-vault decrypt ansible/group_vars/service_vault.yml
+
+# Re-encrypt after manual editing
+ansible-vault encrypt ansible/group_vars/service_vault.yml
+
+# Change vault password
+ansible-vault rekey ansible/group_vars/service_vault.yml
+```
+
+**Directory Structure Example**:
+```
+ansible/group_vars/
+├── all_vault.yml              # Encrypted - Global secrets
+├── all_vault.yml.template     # Unencrypted - Reference template
+├── haproxy_vault.yml          # Encrypted - HAProxy secrets
+├── haproxy_vault.yml.template # Unencrypted - Reference template
+├── k3s_cluster_vault.yml      # Encrypted - K3s secrets
+└── k3s_cluster_vault.yml.template  # Unencrypted - Reference template
+```
+
 ### Container Orchestration
 - **Namespace Isolation**: Separate workloads by namespace
 - **Resource Limits**: Always define requests and limits
