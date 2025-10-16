@@ -140,6 +140,72 @@
         msg: "Docker verification: {{ 'SUCCESS - Docker is working correctly' if docker_test.rc == 0 else 'FAILED - Docker may not be properly installed' }}"
       tags: [docker, verify]
 
+    - name: Check if Tailscale is already installed
+      ansible.builtin.command: tailscale --version
+      register: tailscale_check
+      changed_when: false
+      failed_when: false
+      tags: [tailscale]
+
+    - name: Display Tailscale installation status
+      ansible.builtin.debug:
+        msg: "Tailscale is {{ 'already installed: ' + tailscale_check.stdout if tailscale_check.rc == 0 else 'not installed, will install now' }}"
+      tags: [tailscale]
+
+    - name: Download Tailscale installation script
+      ansible.builtin.get_url:
+        url: https://tailscale.com/install.sh
+        dest: /tmp/tailscale-install.sh
+        mode: '0755'
+      when: tailscale_check.rc != 0
+      tags: [tailscale]
+
+    - name: Install Tailscale using official script
+      ansible.builtin.command: sh /tmp/tailscale-install.sh
+      when: tailscale_check.rc != 0
+      changed_when: true
+      tags: [tailscale]
+
+    - name: Remove Tailscale installation script
+      ansible.builtin.file:
+        path: /tmp/tailscale-install.sh
+        state: absent
+      when: tailscale_check.rc != 0
+      tags: [tailscale]
+
+    - name: Check if Tailscale is already connected
+      ansible.builtin.command: tailscale status
+      register: tailscale_status
+      changed_when: false
+      failed_when: false
+      tags: [tailscale]
+
+    - name: Connect to Tailscale network
+      ansible.builtin.command: >
+        tailscale up
+        --auth-key={{ tailscale_auth_key }}
+        --ssh
+        --accept-routes=true
+      when:
+        - tailscale_auth_key is defined
+        - tailscale_status.rc != 0 or 'Logged out' in tailscale_status.stdout
+      changed_when: true
+      tags: [tailscale]
+      no_log: true
+
+    - name: Display Tailscale connection warning
+      ansible.builtin.debug:
+        msg: "WARNING: Tailscale auth key not defined. Set 'tailscale_auth_key' variable to connect to Tailscale network."
+      when: tailscale_auth_key is not defined
+      tags: [tailscale]
+
+    - name: Get Tailscale status
+      ansible.builtin.command: tailscale status --json
+      register: tailscale_status_json
+      changed_when: false
+      failed_when: false
+      tags: [tailscale, verify]
+
     - name: Check if oh-my-zsh is already installed for ansible user
       ansible.builtin.stat:
         path: /home/ansible/.oh-my-zsh
@@ -195,6 +261,20 @@
       failed_when: false
       tags: [always]
 
+    - name: Get Tailscale version
+      ansible.builtin.command: tailscale version
+      register: tailscale_version
+      changed_when: false
+      failed_when: false
+      tags: [always]
+
+    - name: Get Tailscale connection status
+      ansible.builtin.command: tailscale status --peers=false
+      register: tailscale_connection_status
+      changed_when: false
+      failed_when: false
+      tags: [always]
+
     - name: Display baseline configuration summary
       ansible.builtin.debug:
         msg: |
@@ -221,6 +301,12 @@
             - elvis user added to docker group
             - Docker service enabled and running
 
+          Tailscale Configuration:
+            - {{ tailscale_version.stdout.split('\n')[0] if tailscale_version.rc == 0 else 'Tailscale not installed' }}
+            - SSH enabled via Tailscale
+            - Route acceptance enabled
+            - Status: {{ 'Connected' if tailscale_connection_status.rc == 0 and tailscale_connection_status.stdout | length > 0 else 'Not connected (auth key needed)' }}
+
           Shell Configuration:
             - oh-my-zsh installed for ansible user
             - zsh set as default shell for ansible user
@@ -236,5 +322,12 @@
             - Logout and login again for docker group to take effect
             - Test Docker: docker run --rm hello-world
             - Test Docker Compose: docker compose version
+            - Check Tailscale status: tailscale status
+            - Access via Tailscale SSH: ssh user@hostname.tailnet-name.ts.net
+
+          Important:
+            - Tailscale auth key should be stored in group_vars/all_vault.yml
+            - Set variable: tailscale_auth_key: "tskey-auth-xxx..."
+            - Encrypt vault: ansible-vault encrypt group_vars/all_vault.yml
           ============================================
       tags: [always]

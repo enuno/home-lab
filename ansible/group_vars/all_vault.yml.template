@@ -1,0 +1,12 @@
+---
+# Global Vault - Encrypted Secrets for All Hosts
+# Encrypt this file using: ansible-vault encrypt group_vars/all_vault.yml
+# Edit encrypted file: ansible-vault edit group_vars/all_vault.yml
+# Decrypt file: ansible-vault decrypt group_vars/all_vault.yml
+
+# Tailscale authentication key
+# Generate new keys at: https://login.tailscale.com/admin/settings/keys
+# Recommended: Use ephemeral keys for testing, reusable keys for production
+tailscale_auth_key: "tskey-auth-..."
+
+# Add additional global secrets here as needed
