@@ -1,0 +1,184 @@
+---
+# HAProxy Docker Deployment Tasks
+# Deploys HAProxy as a Docker container with custom configuration
+
+- name: Validate HAProxy configuration variables
+  ansible.builtin.assert:
+    that:
+      - haproxy_image is defined
+      - haproxy_version is defined
+      - haproxy_stats_port is defined
+      - haproxy_stats_user is defined
+      - haproxy_stats_password is defined
+    fail_msg: "Required HAProxy variables are not defined"
+    success_msg: "HAProxy variables are properly configured"
+  tags: [validation]
+
+- name: Display HAProxy deployment information
+  ansible.builtin.debug:
+    msg: |
+      ================================================
+      Deploying HAProxy using Docker
+      ================================================
+      Image: {{ haproxy_image }}:{{ haproxy_version }}
+      Config Directory: {{ haproxy_config_dir }}
+      Stats Port: {{ haproxy_stats_port }}
+      Frontend Ports: {{ haproxy_frontend_ports | join(', ') }}
+      ================================================
+  tags: [always]
+
+- name: Create HAProxy configuration directory
+  ansible.builtin.file:
+    path: "{{ haproxy_config_dir }}"
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+  tags: [config]
+
+- name: Create HAProxy error pages directory
+  ansible.builtin.file:
+    path: "{{ haproxy_config_dir }}/errors"
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+  tags: [config]
+
+- name: Generate HAProxy configuration file
+  ansible.builtin.template:
+    src: haproxy.cfg.j2
+    dest: "{{ haproxy_config_dir }}/haproxy.cfg"
+    mode: "0644"
+    owner: root
+    group: root
+    validate: docker run --rm -v %s:/usr/local/etc/haproxy/haproxy.cfg:ro {{ haproxy_image }}:{{ haproxy_version }} haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
+  register: haproxy_config
+  tags: [config]
+
+- name: Create custom error page (503 Service Unavailable)
+  ansible.builtin.copy:
+    dest: "{{ haproxy_config_dir }}/errors/503.http"
+    mode: "0644"
+    owner: root
+    group: root
+    content: |
+      HTTP/1.1 503 Service Unavailable
+      Cache-Control: no-cache
+      Connection: close
+      Content-Type: text/html
+
+      <!DOCTYPE html>
+      <html>
+      <head>
+          <title>Service Unavailable</title>
+          <style>
+              body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+              h1 { color: #d9534f; }
+          </style>
+      </head>
+      <body>
+          <h1>503 Service Unavailable</h1>
+          <p>The service is temporarily unavailable. Please try again later.</p>
+          <p><small>Powered by HAProxy</small></p>
+      </body>
+      </html>
+  tags: [config]
+
+- name: Pull HAProxy Docker image
+  community.docker.docker_image:
+    name: "{{ haproxy_image }}"
+    tag: "{{ haproxy_version }}"
+    source: pull
+    force_source: "{{ haproxy_force_pull | default(false) }}"
+  tags: [docker]
+
+- name: Stop existing HAProxy container (if exists)
+  community.docker.docker_container:
+    name: haproxy
+    state: absent
+  when: haproxy_config.changed
+  tags: [docker]
+
+- name: Deploy HAProxy container
+  community.docker.docker_container:
+    name: haproxy
+    image: "{{ haproxy_image }}:{{ haproxy_version }}"
+    state: started
+    restart_policy: unless-stopped
+    network_mode: host
+    volumes:
+      - "{{ haproxy_config_dir }}/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro"
+      - "{{ haproxy_config_dir }}/errors:/usr/local/etc/haproxy/errors:ro"
+    log_driver: "{{ haproxy_log_driver }}"
+    log_options:
+      max-size: "{{ haproxy_log_max_size }}"
+      max-file: "{{ haproxy_log_max_file }}"
+    env:
+      TZ: "{{ haproxy_timezone }}"
+    labels:
+      com.haproxy.description: "HAProxy Load Balancer"
+      com.haproxy.version: "{{ haproxy_version }}"
+    healthcheck:
+      test: ["CMD-SHELL", "haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+  register: haproxy_container
+  tags: [docker]
+
+- name: Wait for HAProxy to be healthy
+  ansible.builtin.pause:
+    seconds: 10
+  when: haproxy_container.changed
+  tags: [docker]
+
+- name: Verify HAProxy container is running
+  community.docker.docker_container_info:
+    name: haproxy
+  register: container_info
+  failed_when: not container_info.exists or not container_info.container.State.Running
+  tags: [verify]
+
+- name: Test HAProxy stats endpoint
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ haproxy_stats_port }}/stats"
+    method: GET
+    user: "{{ haproxy_stats_user }}"
+    password: "{{ haproxy_stats_password }}"
+    force_basic_auth: true
+    status_code: 200
+  register: stats_test
+  retries: 5
+  delay: 5
+  until: stats_test.status == 200
+  tags: [verify]
+
+- name: Display HAProxy container information
+  ansible.builtin.debug:
+    msg: |
+      ================================================
+      HAProxy Container Deployed Successfully
+      ================================================
+      Container ID: {{ container_info.container.Id[:12] }}
+      Status: {{ container_info.container.State.Status }}
+      Started At: {{ container_info.container.State.StartedAt }}
+
+      Ports Exposed:
+      {% for port in haproxy_frontend_ports %}
+      - {{ port }}/tcp
+      {% endfor %}
+      - {{ haproxy_stats_port }}/tcp (stats)
+
+      Stats URL: http://{{ ansible_default_ipv4.address }}:{{ haproxy_stats_port }}/stats
+      Health Check: http://{{ ansible_default_ipv4.address }}:{{ haproxy_stats_port }}/health
+
+      View logs:
+      docker logs -f haproxy
+
+      Reload configuration:
+      docker exec haproxy haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
+      docker restart haproxy
+      ================================================
+  tags: [verify]

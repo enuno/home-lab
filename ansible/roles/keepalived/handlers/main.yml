@@ -1,0 +1,21 @@
+---
+# keepalived Role Handlers
+
+- name: Restart keepalived
+  ansible.builtin.systemd:
+    name: keepalived
+    state: restarted
+  listen: Restart keepalived
+
+- name: Reload keepalived
+  ansible.builtin.systemd:
+    name: keepalived
+    state: reloaded
+  listen: Reload keepalived
+
+- name: Check keepalived configuration
+  ansible.builtin.command: /usr/sbin/keepalived -t -f /etc/keepalived/keepalived.conf
+  register: keepalived_config_check
+  changed_when: false
+  failed_when: keepalived_config_check.rc != 0
+  listen: Check keepalived configuration

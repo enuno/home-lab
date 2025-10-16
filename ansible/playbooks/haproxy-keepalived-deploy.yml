@@ -1,0 +1,318 @@
+---
+# HAProxy + Keepalived High Availability Load Balancer Deployment
+# Deploys HAProxy using Docker and keepalived using local package manager
+# Provides HA load balancing with Virtual IP (VIP) failover
+# https://www.haproxy.org/
+# https://www.keepalived.org/
+
+- name: Pre-deployment validation
+  hosts: haproxy_cluster
+  gather_facts: true
+  become: true
+  tags: [preflight, validation]
+
+  tasks:
+    - name: Validate required variables are defined
+      ansible.builtin.assert:
+        that:
+          - haproxy_virtual_ip is defined
+          - haproxy_virtual_router_id is defined
+          - haproxy_stats_user is defined
+          - haproxy_stats_password is defined
+          - haproxy_stats_password != "changeme123"
+        fail_msg: "Required variables are not defined or using default values"
+        success_msg: "All required variables are properly configured"
+
+    - name: Check if hosts are reachable
+      ansible.builtin.ping:
+
+    - name: Gather network interface information
+      ansible.builtin.setup:
+        gather_subset:
+          - network
+      when: ansible_default_ipv4 is not defined
+
+    - name: Display deployment targets
+      ansible.builtin.debug:
+        msg: |
+          ================================================================
+          HAProxy + Keepalived Deployment Targets
+          ================================================================
+          Primary Node: {{ groups['haproxy_primary'][0] }} ({{ hostvars[groups['haproxy_primary'][0]]['ansible_host'] }})
+          Backup Nodes: {{ groups['haproxy_backup'] | join(', ') if groups['haproxy_backup'] | length > 0 else 'None' }}
+          Virtual IP: {{ haproxy_virtual_ip }}
+          Network Interface: {{ haproxy_network_interface }}
+          ================================================================
+
+- name: Install Docker prerequisites
+  hosts: haproxy_cluster
+  gather_facts: true
+  become: true
+  tags: [docker, prerequisites]
+
+  tasks:
+    - name: Update apt cache (Debian/Ubuntu)
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+
+    - name: Install required packages (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - python3-pip
+          - python3-docker
+        state: present
+      when: ansible_os_family == "Debian"
+
+    - name: Install required packages (RedHat/CentOS)
+      ansible.builtin.yum:
+        name:
+          - yum-utils
+          - device-mapper-persistent-data
+          - lvm2
+          - python3-pip
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Install Docker SDK for Python
+      ansible.builtin.pip:
+        name:
+          - docker
+          - docker-compose
+        state: present
+        executable: pip3
+
+- name: Install and configure Docker
+  hosts: haproxy_cluster
+  gather_facts: true
+  become: true
+  tags: [docker]
+
+  tasks:
+    - name: Check if Docker is already installed
+      ansible.builtin.command: docker --version
+      register: docker_check
+      changed_when: false
+      failed_when: false
+
+    - name: Add Docker GPG key (Debian/Ubuntu)
+      ansible.builtin.apt_key:
+        url: https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg
+        state: present
+      when:
+        - ansible_os_family == "Debian"
+        - docker_check.rc != 0
+
+    - name: Add Docker repository (Debian/Ubuntu)
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable"
+        state: present
+      when:
+        - ansible_os_family == "Debian"
+        - docker_check.rc != 0
+
+    - name: Install Docker (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: present
+        update_cache: true
+      when:
+        - ansible_os_family == "Debian"
+        - docker_check.rc != 0
+
+    - name: Add Docker repository (RedHat/CentOS)
+      ansible.builtin.yum_repository:
+        name: docker-ce
+        description: Docker CE Stable
+        baseurl: https://download.docker.com/linux/centos/$releasever/$basearch/stable
+        gpgcheck: true
+        gpgkey: https://download.docker.com/linux/centos/gpg
+      when:
+        - ansible_os_family == "RedHat"
+        - docker_check.rc != 0
+
+    - name: Install Docker (RedHat/CentOS)
+      ansible.builtin.yum:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+        state: present
+      when:
+        - ansible_os_family == "RedHat"
+        - docker_check.rc != 0
+
+    - name: Ensure Docker service is started and enabled
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Add ansible user to docker group
+      ansible.builtin.user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: true
+
+    - name: Reset SSH connection to apply docker group membership
+      ansible.builtin.meta: reset_connection
+
+- name: Deploy HAProxy using Docker
+  hosts: haproxy_cluster
+  gather_facts: true
+  become: true
+  tags: [haproxy, deploy]
+
+  roles:
+    - role: haproxy-docker
+
+- name: Deploy keepalived for HA
+  hosts: haproxy_cluster
+  gather_facts: true
+  become: true
+  tags: [keepalived, deploy]
+
+  roles:
+    - role: keepalived
+
+- name: Post-deployment verification
+  hosts: haproxy_cluster
+  gather_facts: false
+  become: true
+  tags: [verify, post-deployment]
+
+  tasks:
+    - name: Wait for HAProxy container to be running
+      community.docker.docker_container_info:
+        name: haproxy
+      register: haproxy_container
+      until: haproxy_container.exists and haproxy_container.container.State.Running
+      retries: 10
+      delay: 5
+
+    - name: Check keepalived service status
+      ansible.builtin.systemd:
+        name: keepalived
+      register: keepalived_status
+
+    - name: Verify keepalived is running
+      ansible.builtin.assert:
+        that:
+          - keepalived_status.status.ActiveState == "active"
+        fail_msg: "keepalived service is not running"
+        success_msg: "keepalived service is active and running"
+
+    - name: Check if Virtual IP is assigned (primary node only)
+      ansible.builtin.command: ip addr show {{ haproxy_network_interface }}
+      register: ip_check
+      changed_when: false
+      when: inventory_hostname in groups['haproxy_primary']
+
+    - name: Display Virtual IP status
+      ansible.builtin.debug:
+        msg: |
+          Virtual IP {{ haproxy_virtual_ip }} is {{ 'ASSIGNED' if haproxy_virtual_ip in ip_check.stdout else 'NOT ASSIGNED' }}
+      when: inventory_hostname in groups['haproxy_primary']
+
+    - name: Test HAProxy stats page
+      ansible.builtin.uri:
+        url: "http://{{ ansible_default_ipv4.address }}:{{ haproxy_stats_port }}/stats"
+        method: GET
+        user: "{{ haproxy_stats_user }}"
+        password: "{{ haproxy_stats_password }}"
+        force_basic_auth: true
+        status_code: 200
+      register: stats_check
+      failed_when: false
+
+    - name: Display stats page result
+      ansible.builtin.debug:
+        msg: "HAProxy stats page is {{ 'accessible' if stats_check.status == 200 else 'not accessible' }}"
+
+    - name: Display deployment summary
+      ansible.builtin.debug:
+        msg: |
+          ================================================================
+          HAProxy + Keepalived Deployment Summary
+          ================================================================
+          Node: {{ inventory_hostname }}
+          Role: {{ 'PRIMARY' if inventory_hostname in groups['haproxy_primary'] else 'BACKUP' }}
+          IP Address: {{ ansible_default_ipv4.address }}
+
+          HAProxy Status:
+          - Container: {{ 'Running' if haproxy_container.container.State.Running else 'Stopped' }}
+          - Stats Page: http://{{ ansible_default_ipv4.address }}:{{ haproxy_stats_port }}/stats
+
+          keepalived Status:
+          - Service: {{ keepalived_status.status.ActiveState }}
+          - Priority: {{ haproxy_keepalived_priority }}
+
+          Virtual IP: {{ haproxy_virtual_ip }}
+          Network Interface: {{ haproxy_network_interface }}
+          ================================================================
+
+- name: Final deployment report
+  hosts: localhost
+  gather_facts: false
+  tags: [report]
+
+  tasks:
+    - name: Display final deployment information
+      ansible.builtin.debug:
+        msg: |
+          ================================================================
+          HAProxy + Keepalived Deployment Complete!
+          ================================================================
+
+          High Availability Configuration:
+          - Virtual IP: {{ haproxy_virtual_ip }}
+          - Primary Node: {{ groups['haproxy_primary'][0] }}
+          - Backup Nodes: {{ groups['haproxy_backup'] | join(', ') if groups['haproxy_backup'] | length > 0 else 'None' }}
+
+          Access Information:
+          - HAProxy Stats: http://{{ haproxy_virtual_ip }}:{{ haproxy_stats_port }}/stats
+          - Username: {{ haproxy_stats_user }}
+          - Password: {{ haproxy_stats_password }}
+
+          Health Check:
+          - HAProxy Health: http://{{ haproxy_virtual_ip }}:{{ haproxy_stats_port }}/health
+
+          Next Steps:
+          1. Configure backend servers in group_vars/haproxy.yml
+          2. Test failover by stopping keepalived on primary node:
+             sudo systemctl stop keepalived
+          3. Monitor logs:
+             - HAProxy: docker logs -f haproxy
+             - keepalived: journalctl -u keepalived -f
+          4. Verify Virtual IP failover functionality
+          5. Configure your applications to use {{ haproxy_virtual_ip }}
+
+          Management Commands:
+          # View HAProxy logs
+          docker logs -f haproxy
+
+          # Reload HAProxy configuration
+          docker exec haproxy haproxy -c -f /usr/local/etc/haproxy/haproxy.cfg
+          docker restart haproxy
+
+          # Check keepalived status
+          systemctl status keepalived
+
+          # View keepalived logs
+          journalctl -u keepalived -f
+
+          # Test VIP failover
+          # On primary: sudo systemctl stop keepalived
+          # Watch backup take over VIP
+          # On primary: sudo systemctl start keepalived
+
+          ================================================================

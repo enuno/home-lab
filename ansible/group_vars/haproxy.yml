@@ -1,0 +1,190 @@
+---
+# HAProxy + keepalived Cluster Configuration
+# This file contains configuration for HAProxy and keepalived deployment
+# Override these values to match your environment
+
+#============================================
+# HAProxy Docker Configuration
+#============================================
+
+# HAProxy Docker image
+haproxy_image: "haproxy"
+haproxy_version: "3.0-alpine"
+haproxy_force_pull: false
+
+# HAProxy configuration directory
+haproxy_config_dir: "/etc/haproxy"
+
+# HAProxy stats interface
+haproxy_stats_port: 8404
+haproxy_stats_user: "admin"
+haproxy_stats_password: !vault |
+          $ANSIBLE_VAULT;1.1;AES256
+          # Replace with encrypted password using:
+          # ansible-vault encrypt_string 'your-password' --name 'haproxy_stats_password'
+haproxy_stats_uri: "/stats"
+haproxy_stats_refresh: "5s"
+
+# HAProxy frontend ports
+haproxy_frontend_ports:
+  - 80     # HTTP
+  - 443    # HTTPS
+  - 8080   # Alternative HTTP
+
+# HAProxy backend servers
+# Update with your actual backend servers
+haproxy_backend_servers:
+  - name: "web1"
+    address: "10.2.0.101"
+    port: 80
+    check: true
+    backup: false
+  - name: "web2"
+    address: "10.2.0.102"
+    port: 80
+    check: true
+    backup: false
+  - name: "web3"
+    address: "10.2.0.103"
+    port: 80
+    check: true
+    backup: true
+
+# HAProxy global settings
+haproxy_maxconn: 4096
+haproxy_log_level: "info"
+haproxy_nbthread: 2
+
+# HAProxy timeouts
+haproxy_timeout_connect: "5s"
+haproxy_timeout_client: "50s"
+haproxy_timeout_server: "50s"
+haproxy_timeout_queue: "30s"
+haproxy_timeout_http_request: "10s"
+haproxy_timeout_http_keep_alive: "10s"
+
+# HAProxy health check settings
+haproxy_health_check_interval: "10s"
+haproxy_health_check_timeout: "3s"
+haproxy_health_check_rise: 2
+haproxy_health_check_fall: 3
+
+# Load balancing algorithm
+# Options: roundrobin, leastconn, source, uri, url_param, hdr, random
+haproxy_balance_algorithm: "roundrobin"
+
+# SSL/TLS configuration
+haproxy_ssl_enabled: false
+haproxy_ssl_certificate_path: "/etc/haproxy/certs/cert.pem"
+haproxy_ssl_redirect_http: true
+
+# Logging
+haproxy_log_driver: "json-file"
+haproxy_log_max_size: "10m"
+haproxy_log_max_file: "3"
+haproxy_enable_access_log: true
+haproxy_enable_error_log: true
+
+# Timezone
+haproxy_timezone: "America/New_York"
+
+# Custom error pages
+haproxy_custom_errors: true
+haproxy_error_files:
+  - code: 503
+    path: "/usr/local/etc/haproxy/errors/503.http"
+
+# Compression
+haproxy_enable_compression: true
+haproxy_compression_algorithms: "gzip deflate"
+haproxy_compression_types: "text/html text/plain text/css text/javascript application/javascript application/json"
+
+# Rate limiting
+haproxy_enable_rate_limit: false
+haproxy_rate_limit_period: "10s"
+haproxy_rate_limit_requests: 100
+
+# Prometheus metrics
+haproxy_enable_prometheus: false
+haproxy_prometheus_port: 9101
+
+# Custom security headers
+haproxy_custom_headers:
+  - "X-Frame-Options: SAMEORIGIN"
+  - "X-Content-Type-Options: nosniff"
+  - "X-XSS-Protection: 1; mode=block"
+  - "Referrer-Policy: strict-origin-when-cross-origin"
+
+#============================================
+# keepalived Configuration (High Availability)
+#============================================
+
+# Virtual IP configuration
+# IMPORTANT: Change this to an available IP on your network
+haproxy_virtual_ip: "10.2.0.200"
+haproxy_virtual_ip_cidr: "24"
+
+# Virtual Router ID (must be unique on your network, 1-255)
+haproxy_virtual_router_id: 51
+
+# Network interface (check with 'ip addr' on your servers)
+haproxy_network_interface: "eth0"
+
+# VRRP settings
+keepalived_advert_interval: 1
+keepalived_auth_type: "PASS"
+keepalived_auth_pass: "SecureHA2025"  # Change this! Max 8 characters
+
+# Health check configuration
+keepalived_check_script: "/etc/keepalived/check_haproxy.sh"
+keepalived_check_interval: 2
+keepalived_check_fall: 2
+keepalived_check_rise: 2
+keepalived_check_weight: -20
+
+# Notification settings
+keepalived_enable_notifications: false
+keepalived_notification_email: "admin@homelab.local"
+keepalived_notification_email_from: "keepalived@{{ ansible_hostname }}"
+keepalived_smtp_server: "localhost"
+keepalived_smtp_connect_timeout: 30
+
+# Track interface settings
+keepalived_track_interface: true
+keepalived_track_interface_weight: -10
+
+# Preemption settings
+keepalived_nopreempt: false
+keepalived_preempt_delay: 30
+
+# Unicast mode (recommended for virtualized environments)
+keepalived_use_unicast: false
+keepalived_unicast_peers: []
+# If using unicast, uncomment and add peer IPs:
+#  - 10.2.0.101
+#  - 10.2.0.102
+
+# Additional Virtual IPs (optional)
+keepalived_additional_vips: []
+# Example:
+#  - address: "10.2.0.201"
+#    interface: "eth0"
+#  - address: "10.2.0.202"
+#    interface: "eth0"
+
+# Logging
+keepalived_log_level: "INFO"
+keepalived_enable_detailed_log: false
+keepalived_enable_syslog: true
+
+# Performance tuning
+keepalived_vrrp_garp_master_delay: 5
+keepalived_vrrp_garp_master_repeat: 2
+keepalived_vrrp_garp_master_refresh: 60
+
+#============================================
+# Ansible Configuration
+#============================================
+
+# Managed message for templates
+ansible_managed: "Managed by Ansible - Modified on %Y-%m-%d %H:%M:%S by {uid} on {host}"

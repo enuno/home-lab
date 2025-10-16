@@ -1,0 +1,102 @@
+---
+# HAProxy Docker Role Default Variables
+# Override these in group_vars/haproxy.yml or inventory variables
+
+# HAProxy Docker image configuration
+haproxy_image: "haproxy"
+haproxy_version: "3.0-alpine"  # Latest stable version as of 2025
+haproxy_force_pull: false
+
+# HAProxy configuration directory
+haproxy_config_dir: "/etc/haproxy"
+
+# HAProxy stats configuration
+haproxy_stats_port: 8404
+haproxy_stats_user: "admin"
+haproxy_stats_password: "changeme123"  # CHANGE THIS!
+haproxy_stats_uri: "/stats"
+haproxy_stats_refresh: "5s"
+
+# HAProxy frontend ports (common web services)
+haproxy_frontend_ports:
+  - 80    # HTTP
+  - 443   # HTTPS
+  - 8080  # Alternative HTTP
+
+# HAProxy backend servers
+# Override this in group_vars with your actual backend servers
+haproxy_backend_servers: []
+#  - name: "web1"
+#    address: "192.168.1.101"
+#    port: 80
+#    check: true
+#    backup: false
+#  - name: "web2"
+#    address: "192.168.1.102"
+#    port: 80
+#    check: true
+#    backup: false
+
+# HAProxy global configuration
+haproxy_maxconn: 4096
+haproxy_log_level: "info"
+haproxy_nbthread: 2  # Auto-detect CPU cores in template
+
+# HAProxy timeouts (in seconds)
+haproxy_timeout_connect: "5s"
+haproxy_timeout_client: "50s"
+haproxy_timeout_server: "50s"
+haproxy_timeout_queue: "30s"
+haproxy_timeout_http_request: "10s"
+haproxy_timeout_http_keep_alive: "10s"
+
+# HAProxy health check settings
+haproxy_health_check_interval: "10s"
+haproxy_health_check_timeout: "3s"
+haproxy_health_check_rise: 2
+haproxy_health_check_fall: 3
+
+# Load balancing algorithm
+# Options: roundrobin, leastconn, source, uri, url_param, hdr, random
+haproxy_balance_algorithm: "roundrobin"
+
+# SSL/TLS configuration
+haproxy_ssl_enabled: false
+haproxy_ssl_certificate_path: "/etc/haproxy/certs/cert.pem"
+haproxy_ssl_redirect_http: true
+
+# Logging configuration
+haproxy_log_driver: "json-file"
+haproxy_log_max_size: "10m"
+haproxy_log_max_file: "3"
+haproxy_enable_access_log: true
+haproxy_enable_error_log: true
+
+# Timezone
+haproxy_timezone: "UTC"
+
+# Custom error pages
+haproxy_custom_errors: true
+haproxy_error_files:
+  - code: 503
+    path: "/usr/local/etc/haproxy/errors/503.http"
+
+# Advanced options
+haproxy_enable_compression: true
+haproxy_compression_algorithms: "gzip deflate"
+haproxy_compression_types: "text/html text/plain text/css text/javascript application/javascript application/json"
+
+# Rate limiting
+haproxy_enable_rate_limit: false
+haproxy_rate_limit_period: "10s"
+haproxy_rate_limit_requests: 100
+
+# Monitoring and stats
+haproxy_enable_prometheus: false
+haproxy_prometheus_port: 9101
+
+# Custom headers
+haproxy_custom_headers: []
+#  - "X-Frame-Options: SAMEORIGIN"
+#  - "X-Content-Type-Options: nosniff"
+#  - "X-XSS-Protection: 1; mode=block"

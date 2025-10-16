@@ -1,0 +1,75 @@
+---
+# keepalived Role Default Variables
+# Override these in group_vars/haproxy.yml or inventory variables
+
+# Virtual IP configuration
+haproxy_virtual_ip: "192.168.1.100"  # CHANGE THIS!
+haproxy_virtual_router_id: 51  # Must be unique on the network (1-255)
+haproxy_network_interface: "eth0"  # Change to match your network interface
+
+# keepalived priority
+# Primary should have highest priority (e.g., 100)
+# Backups should have lower priority (e.g., 90, 80, etc.)
+haproxy_keepalived_priority: 100
+
+# keepalived state
+# PRIMARY for the main node, BACKUP for others
+haproxy_keepalived_state: "BACKUP"  # Will be overridden by inventory group
+
+# VRRP settings
+keepalived_advert_interval: 1  # Advertisement interval in seconds
+keepalived_auth_type: "PASS"  # Authentication type: PASS or AH
+keepalived_auth_pass: "SecurePassword123"  # CHANGE THIS! Max 8 characters
+
+# Health check configuration
+keepalived_check_script: "/etc/keepalived/check_haproxy.sh"
+keepalived_check_interval: 2  # Check interval in seconds
+keepalived_check_fall: 2  # Consecutive failures before state change
+keepalived_check_rise: 2  # Consecutive successes before state change
+keepalived_check_weight: -20  # Weight adjustment on check failure
+
+# Notification settings
+keepalived_enable_notifications: false
+keepalived_notification_email: "admin@example.com"
+keepalived_notification_email_from: "keepalived@{{ ansible_hostname }}"
+keepalived_smtp_server: "localhost"
+keepalived_smtp_connect_timeout: 30
+
+# Track interface (monitor network interface)
+keepalived_track_interface: true
+keepalived_track_interface_weight: -10
+
+# Preemption settings
+keepalived_nopreempt: false  # If true, don't automatically take back VIP when recovering
+keepalived_preempt_delay: 30  # Delay before preempting in seconds
+
+# Virtual IP unicast mode (recommended for cloud environments)
+keepalived_use_unicast: false
+keepalived_unicast_src_ip: "{{ ansible_default_ipv4.address }}"
+keepalived_unicast_peers: []
+#  - 192.168.1.101
+#  - 192.168.1.102
+
+# Additional Virtual IPs (optional)
+keepalived_additional_vips: []
+#  - address: "192.168.1.101"
+#    interface: "eth0"
+#  - address: "192.168.1.102"
+#    interface: "eth0"
+
+# VRRP scripts for additional health checks
+keepalived_vrrp_scripts: []
+#  - name: "check_backend"
+#    script: "/usr/local/bin/check_backend.sh"
+#    interval: 5
+#    weight: -20
+
+# Logging
+keepalived_log_level: "INFO"  # EMERG, ALERT, CRIT, ERR, WARNING, NOTICE, INFO, DEBUG
+keepalived_enable_detailed_log: false
+keepalived_enable_syslog: true
+
+# Performance tuning
+keepalived_vrrp_garp_master_delay: 5  # Delay after becoming MASTER before sending gratuitous ARP
+keepalived_vrrp_garp_master_repeat: 2  # Number of gratuitous ARP messages to send
+keepalived_vrrp_garp_master_refresh: 60  # Interval for periodic gratuitous ARP in MASTER state

@@ -1,0 +1,36 @@
+---
+# HAProxy Docker Role Metadata
+
+galaxy_info:
+  author: Home Lab Infrastructure Team
+  description: Deploy HAProxy load balancer using Docker
+  license: MIT
+  min_ansible_version: "2.14"
+
+  platforms:
+    - name: Ubuntu
+      versions:
+        - focal
+        - jammy
+        - noble
+    - name: Debian
+      versions:
+        - bullseye
+        - bookworm
+    - name: EL
+      versions:
+        - "8"
+        - "9"
+
+  galaxy_tags:
+    - haproxy
+    - loadbalancer
+    - docker
+    - high-availability
+    - networking
+
+dependencies: []
+  # Add role dependencies here if needed
+  # Example:
+  # - role: docker
+  #   when: not docker_installed

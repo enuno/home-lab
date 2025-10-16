@@ -1,0 +1,197 @@
+---
+# keepalived Installation and Configuration Tasks
+# Installs keepalived using local package manager for HA Virtual IP management
+
+- name: Validate keepalived configuration variables
+  ansible.builtin.assert:
+    that:
+      - haproxy_virtual_ip is defined
+      - haproxy_virtual_router_id is defined
+      - haproxy_network_interface is defined
+      - haproxy_keepalived_priority is defined
+    fail_msg: "Required keepalived variables are not defined"
+    success_msg: "keepalived variables are properly configured"
+  tags: [validation]
+
+- name: Display keepalived deployment information
+  ansible.builtin.debug:
+    msg: |
+      ================================================
+      Deploying keepalived for High Availability
+      ================================================
+      Virtual IP: {{ haproxy_virtual_ip }}
+      Router ID: {{ haproxy_virtual_router_id }}
+      Priority: {{ haproxy_keepalived_priority }}
+      Network Interface: {{ haproxy_network_interface }}
+      Role: {{ 'PRIMARY' if inventory_hostname in groups['haproxy_primary'] else 'BACKUP' }}
+      ================================================
+  tags: [always]
+
+- name: Update apt cache (Debian/Ubuntu)
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  when: ansible_os_family == "Debian"
+  tags: [install]
+
+- name: Install keepalived (Debian/Ubuntu)
+  ansible.builtin.apt:
+    name:
+      - keepalived
+      - ipvsadm
+    state: present
+  when: ansible_os_family == "Debian"
+  tags: [install]
+
+- name: Install keepalived (RedHat/CentOS)
+  ansible.builtin.yum:
+    name:
+      - keepalived
+      - ipvsadm
+    state: present
+  when: ansible_os_family == "RedHat"
+  tags: [install]
+
+- name: Ensure keepalived config directory exists
+  ansible.builtin.file:
+    path: /etc/keepalived
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+  tags: [config]
+
+- name: Create keepalived health check script
+  ansible.builtin.template:
+    src: check_haproxy.sh.j2
+    dest: /etc/keepalived/check_haproxy.sh
+    mode: "0755"
+    owner: root
+    group: root
+  tags: [config]
+
+- name: Generate keepalived configuration
+  ansible.builtin.template:
+    src: keepalived.conf.j2
+    dest: /etc/keepalived/keepalived.conf
+    mode: "0644"
+    owner: root
+    group: root
+    validate: /usr/sbin/keepalived -t -f %s
+  notify: Restart keepalived
+  tags: [config]
+
+- name: Enable IP forwarding
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    state: present
+    sysctl_set: true
+    reload: true
+  tags: [sysctl]
+
+- name: Enable IP nonlocal bind
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_nonlocal_bind
+    value: "1"
+    state: present
+    sysctl_set: true
+    reload: true
+  tags: [sysctl]
+
+- name: Ensure keepalived service is enabled and started
+  ansible.builtin.systemd:
+    name: keepalived
+    enabled: true
+    state: started
+  tags: [service]
+
+- name: Wait for keepalived to stabilize
+  ansible.builtin.pause:
+    seconds: 5
+  tags: [service]
+
+- name: Check keepalived service status
+  ansible.builtin.systemd:
+    name: keepalived
+  register: keepalived_status
+  tags: [verify]
+
+- name: Verify keepalived is running
+  ansible.builtin.assert:
+    that:
+      - keepalived_status.status.ActiveState == "active"
+      - keepalived_status.status.LoadState == "loaded"
+    fail_msg: "keepalived service is not running properly"
+    success_msg: "keepalived service is active and running"
+  tags: [verify]
+
+- name: Get current VRRP state
+  ansible.builtin.command: ip addr show {{ haproxy_network_interface }}
+  register: ip_addr_output
+  changed_when: false
+  tags: [verify]
+
+- name: Check if Virtual IP is assigned
+  ansible.builtin.set_fact:
+    vip_assigned: "{{ haproxy_virtual_ip in ip_addr_output.stdout }}"
+  tags: [verify]
+
+- name: Display keepalived status
+  ansible.builtin.debug:
+    msg: |
+      ================================================
+      keepalived Deployment Status
+      ================================================
+      Service Status: {{ keepalived_status.status.ActiveState }}
+      Service State: {{ keepalived_status.status.SubState }}
+      Expected Role: {{ 'PRIMARY' if inventory_hostname in groups['haproxy_primary'] else 'BACKUP' }}
+      Priority: {{ haproxy_keepalived_priority }}
+
+      Virtual IP Status:
+      - VIP Address: {{ haproxy_virtual_ip }}
+      - VIP Assigned: {{ vip_assigned }}
+      - Network Interface: {{ haproxy_network_interface }}
+
+      Management Commands:
+      - Check status: systemctl status keepalived
+      - View logs: journalctl -u keepalived -f
+      - Check VIP: ip addr show {{ haproxy_network_interface }} | grep {{ haproxy_virtual_ip }}
+      - Verify VRRP: tcpdump -i {{ haproxy_network_interface }} vrrp -n
+
+      Health Check Script: /etc/keepalived/check_haproxy.sh
+      Configuration: /etc/keepalived/keepalived.conf
+      ================================================
+  tags: [verify]
+
+- name: Display failover testing instructions
+  ansible.builtin.debug:
+    msg: |
+      ================================================
+      Failover Testing Instructions
+      ================================================
+      To test failover functionality:
+
+      1. On the PRIMARY node, stop keepalived:
+         sudo systemctl stop keepalived
+
+      2. On a BACKUP node, verify VIP assignment:
+         ip addr show {{ haproxy_network_interface }} | grep {{ haproxy_virtual_ip }}
+
+      3. Test connectivity to the VIP:
+         ping {{ haproxy_virtual_ip }}
+         curl http://{{ haproxy_virtual_ip }}:{{ haproxy_stats_port }}/health
+
+      4. Restart PRIMARY to reclaim VIP:
+         sudo systemctl start keepalived
+
+      5. Monitor the transition in logs:
+         journalctl -u keepalived -f
+
+      Important Notes:
+      - Only the active MASTER will have the VIP assigned
+      - Failover should occur within {{ keepalived_advert_interval * 3 }} seconds
+      - All nodes should see VRRP advertisements on the network
+      ================================================
+  when: inventory_hostname in groups['haproxy_primary']
+  tags: [verify]
