@@ -44,7 +44,7 @@ This is a comprehensive home lab infrastructure project focused on building prod
 - **TrueNAS Scale**: Enterprise NAS with ZFS
 - **OpenMediaVault**: Lightweight NAS solution
 - **Synology DSM**: Commercial NAS (if available)
-- **Ceph/Rook**: Distributed storage for Kubernetes
+- **Ceph/Rook/Longhorn**: Distributed storage for Kubernetes
 
 ### Cloud Platforms
 - **AWS**: Primary cloud provider (EC2, ECS, EKS, RDS, S3)

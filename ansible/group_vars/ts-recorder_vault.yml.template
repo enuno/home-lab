@@ -1,0 +1,21 @@
+---
+# Tailscale SSH Recorder Vault Template - DO NOT ENCRYPT THIS FILE
+# This is a reference template for the encrypted vault file
+# Copy to ts-recorder_vault.yml and add real values, then encrypt
+#
+# Usage:
+#   1. Copy this file: cp ts-recorder_vault.yml.template ts-recorder_vault.yml
+#   2. Edit ts-recorder_vault.yml and add your real Tailscale auth key
+#   3. Encrypt the file: ansible-vault encrypt group_vars/ts-recorder_vault.yml
+#
+# Vault Operations:
+#   - Edit: ansible-vault edit group_vars/ts-recorder_vault.yml
+#   - View: ansible-vault view group_vars/ts-recorder_vault.yml
+#   - Decrypt: ansible-vault decrypt group_vars/ts-recorder_vault.yml
+#   - Re-encrypt: ansible-vault encrypt group_vars/ts-recorder_vault.yml
+#   - Change password: ansible-vault rekey group_vars/ts-recorder_vault.yml
+
+# Tailscale authentication key for the SSH recorder
+# Get this from: https://login.tailscale.com/admin/settings/keys
+# Use a reusable key with the tag:session-recorder tag
+tailscale_auth_key: "tskey-auth-xxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"

@@ -1,11 +1,21 @@
 ---
 # Ubuntu Baseline Configuration Playbook
 # Applies basic security and utility configurations to all Ubuntu servers
+#
+# Usage:
+#   ansible-playbook -i inventory/ubuntu-servers.ini playbooks/ubuntu-baseline.yml --ask-vault-pass
+#
+#   Or with vault password file:
+#   ansible-playbook -i inventory/ubuntu-servers.ini playbooks/ubuntu-baseline.yml --vault-password-file ~/.vault_pass
+#
+# Note: The playbook requires tailscale_auth_key from group_vars/all_vault.yml to be decrypted
 
 - name: Apply baseline configuration to Ubuntu servers
   hosts: all
   gather_facts: true
   become: true
+  vars_files:
+    - ../group_vars/all_vault.yml
 
   tasks:
     - name: Update apt cache
@@ -209,7 +219,12 @@
     - name: Check if oh-my-zsh is already installed for ansible user
       ansible.builtin.stat:
         path: /home/ansible/.oh-my-zsh
-      register: ohmyzsh_installed
+      register: ohmyzsh_ansible_check
+      tags: [shell]
+
+    - name: Display oh-my-zsh installation status for ansible user
+      ansible.builtin.debug:
+        msg: "oh-my-zsh is {{ 'already installed' if ohmyzsh_ansible_check.stat.exists else 'not installed, will install now' }} for ansible user"
       tags: [shell]
 
     - name: Install oh-my-zsh for ansible user
@@ -217,13 +232,43 @@
         sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
       become: true
       become_user: ansible
-      when: not ohmyzsh_installed.stat.exists
+      when: not ohmyzsh_ansible_check.stat.exists
+      environment:
+        HOME: /home/ansible
       tags: [shell]
       changed_when: true
 
     - name: Set zsh as default shell for ansible user
       ansible.builtin.user:
         name: ansible
+        shell: /usr/bin/zsh
+      tags: [shell]
+
+    - name: Check if oh-my-zsh is already installed for elvis user
+      ansible.builtin.stat:
+        path: /home/elvis/.oh-my-zsh
+      register: ohmyzsh_elvis_check
+      tags: [shell]
+
+    - name: Display oh-my-zsh installation status for elvis user
+      ansible.builtin.debug:
+        msg: "oh-my-zsh is {{ 'already installed' if ohmyzsh_elvis_check.stat.exists else 'not installed, will install now' }} for elvis user"
+      tags: [shell]
+
+    - name: Install oh-my-zsh for elvis user
+      ansible.builtin.shell: |
+        sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+      become: true
+      become_user: elvis
+      when: not ohmyzsh_elvis_check.stat.exists
+      environment:
+        HOME: /home/elvis
+      tags: [shell]
+      changed_when: true
+
+    - name: Set zsh as default shell for elvis user
+      ansible.builtin.user:
+        name: elvis
         shell: /usr/bin/zsh
       tags: [shell]
 
@@ -309,7 +354,8 @@
 
           Shell Configuration:
             - oh-my-zsh installed for ansible user
-            - zsh set as default shell for ansible user
+            - oh-my-zsh installed for elvis user
+            - zsh set as default shell for both users
 
           Security:
             - fail2ban enabled and running
