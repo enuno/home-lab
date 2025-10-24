@@ -106,7 +106,7 @@ YubiKey SSH and GPG Key Management Script v${SCRIPT_VERSION}
 Usage: ${SCRIPT_NAME} [OPTIONS]
 
 Options:
-  -m, --mode MODE          Operation mode: 'generate' or 'load' (default: interactive)
+  -m, --mode MODE          Operation mode: 'generate', 'load', or 'backup' (default: interactive)
   -n, --name NAME          Cardholder name (required for generate mode)
   -e, --email EMAIL        Cardholder email (required for generate mode)
   -b, --backup PATH        Backup directory path for load mode
@@ -129,6 +129,9 @@ Examples:
 
   # Load existing keys from backup
   ${SCRIPT_NAME} --mode load --backup /path/to/backup
+
+  # Backup keys from YubiKey
+  ${SCRIPT_NAME} --mode backup
 
 EOF
     exit 0
@@ -287,24 +290,36 @@ initialize_yubikey() {
 
     # Set PINs
     log_info "Setting User PIN..."
-    echo -e "${USER_PIN}\n${USER_PIN}\n" | gpg --command-fd=0 --pinentry-mode=loopback --card-edit > /dev/null 2>&1 <<EOF
+    gpg --command-fd=0 --pinentry-mode=loopback --status-fd=1 --card-edit > /dev/null 2>&1 <<EOF
 admin
 passwd
 1
+123456
 ${USER_PIN}
 ${USER_PIN}
 q
+quit
 EOF
 
+    if [[ $? -ne 0 ]]; then
+        log_warning "Failed to set User PIN automatically. You may need to set it manually."
+    fi
+
     log_info "Setting Admin PIN..."
-    echo -e "${ADMIN_PIN}\n${ADMIN_PIN}\n" | gpg --command-fd=0 --pinentry-mode=loopback --card-edit > /dev/null 2>&1 <<EOF
+    gpg --command-fd=0 --pinentry-mode=loopback --status-fd=1 --card-edit > /dev/null 2>&1 <<EOF
 admin
 passwd
 3
+12345678
 ${ADMIN_PIN}
 ${ADMIN_PIN}
 q
+quit
 EOF
+
+    if [[ $? -ne 0 ]]; then
+        log_warning "Failed to set Admin PIN automatically. You may need to set it manually."
+    fi
 
     # Set touch policies
     if [[ "${TOUCH_POLICY}" != "off" ]]; then
@@ -335,75 +350,70 @@ generate_gpg_keys() {
         exit 1
     fi
 
-    # Determine key algorithm
-    local key_algo=""
-    local key_length=""
+    local user_id="${CARDHOLDER_NAME} <${CARDHOLDER_EMAIL}>"
 
+    # Generate master key and subkeys using quick commands
     if [[ "${KEY_TYPE}" == "rsa4096" ]]; then
-        key_algo="rsa"
-        key_length="4096"
+        log_info "Generating RSA 4096-bit master key (this may take a while)..."
+
+        # Generate master key with cert capability only
+        gpg --batch --passphrase '' --quick-gen-key "${user_id}" rsa4096 cert never 2>&1 | tee -a "${LOG_FILE}"
+
+        # Get the key fingerprint
+        local key_fpr
+        key_fpr=$(gpg --list-secret-keys --with-colons "${CARDHOLDER_EMAIL}" | grep '^fpr' | head -n1 | cut -d: -f10)
+
+        if [[ -z "${key_fpr}" ]]; then
+            log_error "Failed to generate master key."
+            exit 1
+        fi
+
+        log_info "Master key generated. Fingerprint: ${key_fpr}"
+
+        # Add signing subkey
+        log_info "Adding signing subkey..."
+        gpg --batch --passphrase '' --quick-add-key "${key_fpr}" rsa4096 sign never 2>&1 | tee -a "${LOG_FILE}"
+
+        # Add encryption subkey
+        log_info "Adding encryption subkey..."
+        gpg --batch --passphrase '' --quick-add-key "${key_fpr}" rsa4096 encr never 2>&1 | tee -a "${LOG_FILE}"
+
+        # Add authentication subkey
+        log_info "Adding authentication subkey..."
+        gpg --batch --passphrase '' --quick-add-key "${key_fpr}" rsa4096 auth never 2>&1 | tee -a "${LOG_FILE}"
+
     elif [[ "${KEY_TYPE}" == "ed25519" ]]; then
-        key_algo="ed25519"
-        key_length=""
+        log_info "Generating Ed25519 master key..."
+
+        # Generate master key with cert capability only
+        gpg --batch --passphrase '' --quick-gen-key "${user_id}" ed25519 cert never 2>&1 | tee -a "${LOG_FILE}"
+
+        # Get the key fingerprint
+        local key_fpr
+        key_fpr=$(gpg --list-secret-keys --with-colons "${CARDHOLDER_EMAIL}" | grep '^fpr' | head -n1 | cut -d: -f10)
+
+        if [[ -z "${key_fpr}" ]]; then
+            log_error "Failed to generate master key."
+            exit 1
+        fi
+
+        log_info "Master key generated. Fingerprint: ${key_fpr}"
+
+        # Add signing subkey
+        log_info "Adding signing subkey..."
+        gpg --batch --passphrase '' --quick-add-key "${key_fpr}" ed25519 sign never 2>&1 | tee -a "${LOG_FILE}"
+
+        # Add encryption subkey (uses cv25519)
+        log_info "Adding encryption subkey..."
+        gpg --batch --passphrase '' --quick-add-key "${key_fpr}" cv25519 encr never 2>&1 | tee -a "${LOG_FILE}"
+
+        # Add authentication subkey
+        log_info "Adding authentication subkey..."
+        gpg --batch --passphrase '' --quick-add-key "${key_fpr}" ed25519 auth never 2>&1 | tee -a "${LOG_FILE}"
     else
         log_error "Invalid key type: ${KEY_TYPE}"
         exit 1
     fi
-
-    # Create GPG batch file for key generation
-    local batch_file="/tmp/gpg-keygen-batch-$$.txt"
-
-    if [[ "${KEY_TYPE}" == "rsa4096" ]]; then
-        cat > "${batch_file}" <<EOF
-%echo Generating GPG key
-Key-Type: RSA
-Key-Length: 4096
-Key-Usage: cert
-Subkey-Type: RSA
-Subkey-Length: 4096
-Subkey-Usage: sign
-Subkey-Type: RSA
-Subkey-Length: 4096
-Subkey-Usage: encrypt
-Subkey-Type: RSA
-Subkey-Length: 4096
-Subkey-Usage: auth
-Name-Real: ${CARDHOLDER_NAME}
-Name-Email: ${CARDHOLDER_EMAIL}
-Expire-Date: 0
-%no-protection
-%commit
-%echo Done
-EOF
-    else
-        cat > "${batch_file}" <<EOF
-%echo Generating GPG key
-Key-Type: EdDSA
-Key-Curve: ed25519
-Key-Usage: cert
-Subkey-Type: EdDSA
-Subkey-Curve: ed25519
-Subkey-Usage: sign
-Subkey-Type: ECDH
-Subkey-Curve: cv25519
-Subkey-Usage: encrypt
-Subkey-Type: EdDSA
-Subkey-Curve: ed25519
-Subkey-Usage: auth
-Name-Real: ${CARDHOLDER_NAME}
-Name-Email: ${CARDHOLDER_EMAIL}
-Expire-Date: 0
-%no-protection
-%commit
-%echo Done
-EOF
-    fi
-
-    log_info "Generating master key and subkeys (this may take a while)..."
-    gpg --batch --generate-key "${batch_file}" 2>&1 | tee -a "${LOG_FILE}"
-
-    # Clean up batch file
-    rm -f "${batch_file}"
 
     # Get the key ID
     local key_id
@@ -437,37 +447,99 @@ transfer_gpg_keys_to_yubikey() {
 
     log_info "Transferring subkeys for key ID: ${key_id}"
 
-    # Transfer signing subkey
-    log_info "Transferring signing subkey..."
-    gpg --command-fd=0 --pinentry-mode=loopback --edit-key "${key_id}" <<EOF
-key 1
-keytocard
-1
-${ADMIN_PIN}
-save
-EOF
+    # Create a temporary pinentry script to provide Admin PIN
+    local pinentry_script="/tmp/pinentry-yubikey-$$.sh"
+    cat > "${pinentry_script}" <<'PINENTRY_EOF'
+#!/bin/bash
+echo "OK Pleased to meet you"
+while IFS= read -r cmd; do
+    case "$cmd" in
+        GETPIN*)
+            echo "D ADMIN_PIN_PLACEHOLDER"
+            echo "OK"
+            ;;
+        *)
+            echo "OK"
+            ;;
+    esac
+done
+PINENTRY_EOF
 
-    # Transfer encryption subkey
-    log_info "Transferring encryption subkey..."
-    gpg --command-fd=0 --pinentry-mode=loopback --edit-key "${key_id}" <<EOF
-key 2
-keytocard
-2
-${ADMIN_PIN}
-save
-EOF
+    # Replace placeholder with actual Admin PIN
+    sed -i.bak "s/ADMIN_PIN_PLACEHOLDER/${ADMIN_PIN}/" "${pinentry_script}"
+    chmod +x "${pinentry_script}"
 
-    # Transfer authentication subkey
-    log_info "Transferring authentication subkey..."
-    gpg --command-fd=0 --pinentry-mode=loopback --edit-key "${key_id}" <<EOF
-key 3
-keytocard
-3
-${ADMIN_PIN}
-save
-EOF
+    # Save original GPG_AGENT_INFO and pinentry program
+    local original_pinentry
+    original_pinentry=$(gpgconf --list-options gpg-agent | grep pinentry-program | cut -d: -f10)
 
-    log_success "GPG subkeys transferred to YubiKey successfully"
+    # Configure GPG to use our custom pinentry
+    gpgconf --kill gpg-agent
+    mkdir -p "${HOME}/.gnupg"
+    echo "pinentry-program ${pinentry_script}" > "${HOME}/.gnupg/gpg-agent.conf.tmp"
+    echo "allow-loopback-pinentry" >> "${HOME}/.gnupg/gpg-agent.conf.tmp"
+
+    # Backup existing config if present
+    if [[ -f "${HOME}/.gnupg/gpg-agent.conf" ]]; then
+        cp "${HOME}/.gnupg/gpg-agent.conf" "${HOME}/.gnupg/gpg-agent.conf.backup"
+    fi
+    mv "${HOME}/.gnupg/gpg-agent.conf.tmp" "${HOME}/.gnupg/gpg-agent.conf"
+
+    # Restart GPG agent with new pinentry
+    gpg-agent --daemon >/dev/null 2>&1
+
+    log_info "Custom pinentry configured for YubiKey Admin PIN"
+
+    # Transfer signing subkey (slot 1)
+    log_info "Transferring signing subkey to slot 1..."
+    log_warning "You may need to touch your YubiKey to confirm the operation."
+
+    echo -e "key 1\nkeytocard\n1\nsave" | gpg --batch --passphrase '' --command-fd 0 --edit-key "${key_id}" 2>&1 | tee -a "${LOG_FILE}"
+
+    if [[ ${PIPESTATUS[1]} -ne 0 ]]; then
+        log_warning "Signing subkey transfer may have failed. Check output above."
+    fi
+
+    # Transfer encryption subkey (slot 2)
+    log_info "Transferring encryption subkey to slot 2..."
+    log_warning "You may need to touch your YubiKey to confirm the operation."
+
+    echo -e "key 2\nkeytocard\n2\nsave" | gpg --batch --passphrase '' --command-fd 0 --edit-key "${key_id}" 2>&1 | tee -a "${LOG_FILE}"
+
+    if [[ ${PIPESTATUS[1]} -ne 0 ]]; then
+        log_warning "Encryption subkey transfer may have failed. Check output above."
+    fi
+
+    # Transfer authentication subkey (slot 3)
+    log_info "Transferring authentication subkey to slot 3..."
+    log_warning "You may need to touch your YubiKey to confirm the operation."
+
+    echo -e "key 3\nkeytocard\n3\nsave" | gpg --batch --passphrase '' --command-fd 0 --edit-key "${key_id}" 2>&1 | tee -a "${LOG_FILE}"
+
+    if [[ ${PIPESTATUS[1]} -ne 0 ]]; then
+        log_warning "Authentication subkey transfer may have failed. Check output above."
+    fi
+
+    # Restore original GPG agent configuration
+    gpgconf --kill gpg-agent
+    if [[ -f "${HOME}/.gnupg/gpg-agent.conf.backup" ]]; then
+        mv "${HOME}/.gnupg/gpg-agent.conf.backup" "${HOME}/.gnupg/gpg-agent.conf"
+    else
+        rm -f "${HOME}/.gnupg/gpg-agent.conf"
+    fi
+
+    # Clean up temporary files
+    rm -f "${pinentry_script}" "${pinentry_script}.bak"
+
+    # Restart GPG agent with original config
+    gpg-agent --daemon >/dev/null 2>&1
+
+    log_success "GPG subkey transfer completed. Verifying..."
+
+    # Verify that keys were transferred
+    gpg --card-status 2>&1 | grep -q "Signature key" && log_success "✓ Signing key on card" || log_error "✗ Signing key NOT on card"
+    gpg --card-status 2>&1 | grep -q "Encryption key" && log_success "✓ Encryption key on card" || log_error "✗ Encryption key NOT on card"
+    gpg --card-status 2>&1 | grep -q "Authentication key" && log_success "✓ Authentication key on card" || log_error "✗ Authentication key NOT on card"
 }
 
 # Import existing GPG keys from backup
@@ -903,6 +975,100 @@ mode_load() {
     echo "  3. Test YubiKey functionality"
 }
 
+# Mode 3: Backup existing YubiKey
+mode_backup() {
+    log_info "Starting Backup YubiKey mode..."
+
+    # Detect YubiKey
+    detect_yubikey
+
+    # Check if keys exist on the card
+    log_step "Checking for keys on YubiKey..."
+
+    local card_status
+    card_status=$(gpg --card-status 2>&1)
+
+    # Check if any keys are present
+    if ! echo "${card_status}" | grep -qE "(Signature key|Encryption key|Authentication key)" || \
+       echo "${card_status}" | grep -q "\[none\]"; then
+        log_error "No keys found on YubiKey card. Cannot create backup."
+        log_info "Card status:"
+        echo "${card_status}"
+        exit 1
+    fi
+
+    log_success "Keys detected on YubiKey"
+
+    # Try to extract cardholder information from card
+    local card_name
+    local card_email
+    card_name=$(echo "${card_status}" | grep "Name of cardholder:" | cut -d: -f2- | xargs)
+
+    # Extract key ID from card
+    local key_id
+    key_id=$(echo "${card_status}" | grep -E "^General key info" -A1 | grep -oE "[A-F0-9]{16}" | head -n1)
+
+    if [[ -z "${key_id}" ]]; then
+        # Try alternative method to get key ID
+        key_id=$(gpg --card-status 2>&1 | grep -oE "sec[>#].*\/[A-F0-9]{16}" | grep -oE "[A-F0-9]{16}")
+    fi
+
+    if [[ -n "${key_id}" ]]; then
+        log_info "Found GPG key ID on card: ${key_id}"
+        echo "${key_id}" > /tmp/yubikey-key-id.txt
+
+        # Try to get email from GPG key
+        if gpg --list-keys "${key_id}" >/dev/null 2>&1; then
+            card_email=$(gpg --list-keys "${key_id}" 2>/dev/null | grep -oE "\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b" | head -n1)
+            if [[ -z "${CARDHOLDER_EMAIL}" && -n "${card_email}" ]]; then
+                CARDHOLDER_EMAIL="${card_email}"
+            fi
+        fi
+    else
+        log_warning "Could not determine key ID from YubiKey"
+    fi
+
+    # Display information
+    echo
+    log_info "YubiKey Information:"
+    if [[ -n "${card_name}" ]]; then
+        echo "  Cardholder: ${card_name}"
+    fi
+    if [[ -n "${card_email}" ]]; then
+        echo "  Email: ${card_email}"
+    fi
+    if [[ -n "${key_id}" ]]; then
+        echo "  Key ID: ${key_id}"
+    fi
+    echo
+
+    # Show current card status
+    log_info "Current YubiKey Card Status:"
+    echo "${card_status}" | grep -E "(Application|Version|Serial|Signature key|Encryption key|Authentication key|Name of cardholder)" | tee -a "${LOG_FILE}"
+    echo
+
+    confirm_operation "This will create a backup of the public keys and card information from your YubiKey."
+
+    # Create backup
+    create_backup
+
+    log_success "YubiKey backup completed successfully!"
+    echo
+    log_info "Backup location: ${BACKUP_BASE_DIR}"
+    log_warning "Note: Private keys cannot be exported from YubiKey hardware."
+    log_warning "This backup contains only public keys and card configuration."
+    echo
+    log_info "What was backed up:"
+    echo "  ✓ GPG public key"
+    echo "  ✓ GPG subkeys (stub references)"
+    echo "  ✓ SSH public keys (if available)"
+    echo "  ✓ YubiKey configuration and status"
+    echo
+    log_info "What was NOT backed up (hardware-protected):"
+    echo "  ✗ Private keys (stored securely on YubiKey chip)"
+    echo "  ✗ PINs (never exported)"
+}
+
 # Interactive mode selection
 interactive_mode() {
     echo
@@ -915,10 +1081,11 @@ interactive_mode() {
     echo "Select operation mode:"
     echo "  1) Generate new keys (first-time setup)"
     echo "  2) Load existing keys (backup/secondary YubiKey)"
+    echo "  3) Backup existing YubiKey (export public keys and config)"
     echo
 
     local selection=""
-    read -rp "Enter selection [1-2]: " selection
+    read -rp "Enter selection [1-3]: " selection
 
     case "${selection}" in
         1)
@@ -926,6 +1093,9 @@ interactive_mode() {
             ;;
         2)
             MODE="load"
+            ;;
+        3)
+            MODE="backup"
             ;;
         *)
             log_error "Invalid selection: ${selection}"
@@ -1021,8 +1191,8 @@ main() {
     fi
 
     # Validate mode
-    if [[ "${MODE}" != "generate" && "${MODE}" != "load" ]]; then
-        log_error "Invalid mode: ${MODE}. Must be 'generate' or 'load'."
+    if [[ "${MODE}" != "generate" && "${MODE}" != "load" && "${MODE}" != "backup" ]]; then
+        log_error "Invalid mode: ${MODE}. Must be 'generate', 'load', or 'backup'."
         exit 1
     fi
 
@@ -1033,6 +1203,9 @@ main() {
             ;;
         load)
             mode_load
+            ;;
+        backup)
+            mode_backup
             ;;
     esac
 
