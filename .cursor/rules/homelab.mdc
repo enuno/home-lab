@@ -525,6 +525,793 @@ volumes:
   postgres_data:
 ```
 
+## YubiKey Security Tool Development
+
+### Overview
+When developing tools for YubiKey management (SSH keys, GPG keys, FIDO2), follow security-first practices while maintaining excellent user experience through both CLI and interactive modes.
+
+### Core Security Principles
+
+**Critical Requirements**:
+- **Never log sensitive information**: PINs, private keys, passphrases
+- **Secure deletion**: Overwrite temporary files before removal
+- **Explicit user consent**: Warn and confirm before destructive operations
+- **Touch policies**: Enforce physical interaction for cryptographic operations
+- **Backup everything**: Create comprehensive, encrypted backups before key operations
+
+### Script Structure Pattern
+
+```bash
+#!/usr/bin/env bash
+# Script: yubikey-setup.sh
+# Purpose: YubiKey configuration automation
+# Requirements: gpg>=2.2, ykman>=4.0, ssh-keygen>=8.2
+
+set -euo pipefail  # Strict error handling
+IFS=$'\n\t'
+
+# Global configuration
+readonly SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
+readonly SCRIPT_VERSION="1.0.0"
+readonly LOG_FILE="/tmp/yubikey-setup-$(date +%Y%m%d-%H%M%S).log"
+readonly BACKUP_DIR="${HOME}/yubikey-backups"
+
+# Color output for user feedback
+readonly RED='\033[0;31m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[0;33m'
+readonly BLUE='\033[0;34m'
+readonly NC='\033[0m' # No Color
+
+# Logging functions
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $*" | tee -a "${LOG_FILE}"
+}
+
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $*" | tee -a "${LOG_FILE}"
+}
+
+log_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $*" | tee -a "${LOG_FILE}"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $*" | tee -a "${LOG_FILE}" >&2
+}
+
+# Error trap for debugging
+trap 'log_error "Script failed at line $LINENO"' ERR
+```
+
+### Operational Modes Pattern
+
+```bash
+# Dual-mode operation: generate new keys vs. load existing keys
+MODE=""
+
+show_usage() {
+    cat <<EOF
+Usage: ${SCRIPT_NAME} [OPTIONS]
+
+Modes:
+  -m, --mode MODE         'generate' (new keys) or 'load' (existing keys)
+
+Generate Mode Options:
+  -n, --name NAME         Full name for GPG key
+  -e, --email EMAIL       Email for GPG key
+  -k, --key-type TYPE     'rsa4096' (default) or 'ed25519'
+  -t, --touch POLICY      'on' (default), 'off', 'cached', 'fixed'
+
+Load Mode Options:
+  -b, --backup PATH       Path to backup directory
+
+Common Options:
+  --skip-ssh              Skip SSH configuration
+  --skip-git              Skip Git signing setup
+  --no-backup             Skip backup creation (not recommended)
+  -y, --yes               Non-interactive mode (assume yes)
+  -v, --verbose           Verbose output
+  -h, --help              Show this help
+  --version               Show version
+
+Examples:
+  # Interactive setup
+  ${SCRIPT_NAME}
+
+  # Generate new keys
+  ${SCRIPT_NAME} --mode generate --name "John Doe" --email "john@example.com"
+
+  # Load existing keys from backup
+  ${SCRIPT_NAME} --mode load --backup ~/yubikey-backups/backup-2025-10-23
+EOF
+}
+
+# Argument parsing
+parse_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -m|--mode)
+                MODE="$2"
+                shift 2
+                ;;
+            -h|--help)
+                show_usage
+                exit 0
+                ;;
+            *)
+                log_error "Unknown option: $1"
+                show_usage
+                exit 1
+                ;;
+        esac
+    done
+}
+```
+
+### Prerequisite Validation
+
+```bash
+# Check for required tools
+check_prerequisites() {
+    local missing_tools=()
+
+    command_exists() {
+        command -v "$1" >/dev/null 2>&1
+    }
+
+    # Required tools with minimum versions
+    local -A required_tools=(
+        ["gpg"]="2.2.0"
+        ["ykman"]="4.0.0"
+        ["ssh-keygen"]="8.2"
+    )
+
+    for tool in "${!required_tools[@]}"; do
+        if ! command_exists "$tool"; then
+            missing_tools+=("$tool (>=${required_tools[$tool]})")
+        fi
+    done
+
+    if [[ ${#missing_tools[@]} -gt 0 ]]; then
+        log_error "Missing required tools:"
+        printf '%s\n' "${missing_tools[@]}" >&2
+        exit 1
+    fi
+
+    # Detect YubiKey
+    if ! ykman list | grep -q "YubiKey"; then
+        log_error "No YubiKey detected. Please insert your YubiKey."
+        exit 1
+    fi
+
+    log_success "All prerequisites met"
+}
+```
+
+### GPG Key Management Patterns
+
+```bash
+# Generate GPG key with proper hierarchy
+generate_gpg_keys() {
+    local name="$1"
+    local email="$2"
+    local key_type="${3:-rsa4096}"
+
+    log_info "Generating GPG keys (${key_type})..."
+
+    # Create batch file for key generation
+    local batch_file
+    batch_file="$(mktemp)"
+    trap "shred -u '${batch_file}'" EXIT
+
+    case $key_type in
+        rsa4096)
+            cat >"${batch_file}" <<EOF
+%no-protection
+Key-Type: RSA
+Key-Length: 4096
+Key-Usage: cert
+Subkey-Type: RSA
+Subkey-Length: 4096
+Subkey-Usage: sign
+Subkey-Type: RSA
+Subkey-Length: 4096
+Subkey-Usage: encrypt
+Subkey-Type: RSA
+Subkey-Length: 4096
+Subkey-Usage: auth
+Name-Real: ${name}
+Name-Email: ${email}
+Expire-Date: 2y
+%commit
+EOF
+            ;;
+        ed25519)
+            cat >"${batch_file}" <<EOF
+%no-protection
+Key-Type: EDDSA
+Key-Curve: Ed25519
+Key-Usage: cert
+Subkey-Type: EDDSA
+Subkey-Curve: Ed25519
+Subkey-Usage: sign
+Subkey-Type: ECDH
+Subkey-Curve: Curve25519
+Subkey-Usage: encrypt
+Subkey-Type: EDDSA
+Subkey-Curve: Ed25519
+Subkey-Usage: auth
+Name-Real: ${name}
+Name-Email: ${email}
+Expire-Date: 2y
+%commit
+EOF
+            ;;
+        *)
+            log_error "Unsupported key type: ${key_type}"
+            exit 1
+            ;;
+    esac
+
+    # Generate keys
+    gpg --batch --generate-key "${batch_file}" 2>&1 | tee -a "${LOG_FILE}"
+
+    # Get key ID
+    local key_id
+    key_id=$(gpg --list-secret-keys --with-colons "${email}" | awk -F: '/^sec/ {print $5; exit}')
+
+    log_success "GPG keys generated. Key ID: ${key_id}"
+    echo "${key_id}"
+}
+
+# Transfer GPG subkeys to YubiKey
+transfer_subkeys_to_yubikey() {
+    local key_id="$1"
+    local admin_pin="$2"
+
+    log_warning "This will MOVE subkeys to YubiKey (destructive operation)"
+    confirm_operation "Transfer subkeys to YubiKey?" || return 1
+
+    log_info "Transferring GPG subkeys to YubiKey..."
+
+    # Transfer signing subkey (slot 1)
+    gpg --batch --pinentry-mode=loopback --passphrase="${admin_pin}" \
+        --command-fd=0 --edit-key "${key_id}" <<EOF
+key 1
+keytocard
+1
+save
+EOF
+
+    # Transfer encryption subkey (slot 2)
+    gpg --batch --pinentry-mode=loopback --passphrase="${admin_pin}" \
+        --command-fd=0 --edit-key "${key_id}" <<EOF
+key 2
+keytocard
+2
+save
+EOF
+
+    # Transfer authentication subkey (slot 3)
+    gpg --batch --pinentry-mode=loopback --passphrase="${admin_pin}" \
+        --command-fd=0 --edit-key "${key_id}" <<EOF
+key 3
+keytocard
+3
+save
+EOF
+
+    log_success "Subkeys transferred to YubiKey"
+}
+```
+
+### SSH Key Management (FIDO2)
+
+```bash
+# Generate FIDO2 resident SSH key
+generate_fido2_ssh_key() {
+    local email="$1"
+    local ssh_key_path="${HOME}/.ssh/id_ecdsa_sk_yubikey"
+
+    log_info "Generating FIDO2 resident SSH key..."
+
+    # Generate with resident key and PIN verification
+    ssh-keygen -t ecdsa-sk \
+        -O resident \
+        -O verify-required \
+        -O application=ssh:yubikey \
+        -C "${email}" \
+        -f "${ssh_key_path}" \
+        -N ""
+
+    log_success "FIDO2 SSH key generated: ${ssh_key_path}.pub"
+
+    # Display public key for copying
+    log_info "Add this public key to your servers:"
+    cat "${ssh_key_path}.pub"
+}
+
+# Configure GPG agent for SSH
+configure_gpg_agent_ssh() {
+    local gpg_agent_conf="${HOME}/.gnupg/gpg-agent.conf"
+
+    log_info "Configuring GPG agent for SSH support..."
+
+    # Update gpg-agent.conf
+    if ! grep -q "enable-ssh-support" "${gpg_agent_conf}" 2>/dev/null; then
+        cat >>"${gpg_agent_conf}" <<EOF
+
+# SSH support via GPG agent
+enable-ssh-support
+default-cache-ttl 600
+max-cache-ttl 7200
+EOF
+        log_info "Added SSH support to gpg-agent.conf"
+    fi
+
+    # Restart GPG agent
+    gpgconf --kill gpg-agent
+    gpg-agent --daemon --enable-ssh-support >/dev/null 2>&1
+
+    # Update shell RC files
+    local shell_rc="${HOME}/.bashrc"
+    [[ -f "${HOME}/.zshrc" ]] && shell_rc="${HOME}/.zshrc"
+
+    if ! grep -q "GPG_TTY" "${shell_rc}" 2>/dev/null; then
+        cat >>"${shell_rc}" <<'EOF'
+
+# YubiKey GPG/SSH configuration
+export GPG_TTY=$(tty)
+export SSH_AUTH_SOCK=$(gpgconf --list-dirs agent-ssh-socket)
+gpgconf --launch gpg-agent
+EOF
+        log_info "Added GPG configuration to ${shell_rc}"
+    fi
+
+    log_success "GPG agent configured for SSH"
+}
+```
+
+### YubiKey Configuration
+
+```bash
+# Initialize YubiKey with PINs and touch policies
+initialize_yubikey() {
+    local user_pin="$1"
+    local admin_pin="$2"
+    local touch_policy="${3:-on}"
+
+    log_warning "This will RESET the YubiKey OpenPGP applet"
+    confirm_operation "Reset YubiKey?" || return 1
+
+    log_info "Resetting YubiKey OpenPGP applet..."
+    ykman openpgp reset --force
+
+    # Set User PIN
+    log_info "Setting User PIN..."
+    gpg --command-fd=0 --pinentry-mode=loopback --card-edit <<EOF
+admin
+passwd
+1
+${user_pin}
+${user_pin}
+q
+quit
+EOF
+
+    # Set Admin PIN
+    log_info "Setting Admin PIN..."
+    gpg --command-fd=0 --pinentry-mode=loopback --card-edit <<EOF
+admin
+passwd
+3
+12345678
+${admin_pin}
+${admin_pin}
+q
+quit
+EOF
+
+    # Configure touch policies
+    log_info "Setting touch policy to '${touch_policy}'..."
+    ykman openpgp keys set-touch sig "${touch_policy}" --admin-pin "${admin_pin}"
+    ykman openpgp keys set-touch enc "${touch_policy}" --admin-pin "${admin_pin}"
+    ykman openpgp keys set-touch aut "${touch_policy}" --admin-pin "${admin_pin}"
+
+    log_success "YubiKey initialized"
+}
+```
+
+### Backup and Recovery
+
+```bash
+# Create comprehensive backup
+create_backup() {
+    local key_id="$1"
+    local backup_timestamp
+    backup_timestamp="$(date +%Y-%m-%d-%H%M%S)"
+    local backup_path="${BACKUP_DIR}/yubikey-backup-${backup_timestamp}"
+
+    log_info "Creating backup in ${backup_path}..."
+    mkdir -p "${backup_path}"
+
+    # Export GPG master key (encrypted with passphrase)
+    gpg --armor --export-secret-keys "${key_id}" \
+        >"${backup_path}/gpg-master-key.asc"
+
+    # Export GPG public key
+    gpg --armor --export "${key_id}" \
+        >"${backup_path}/gpg-public-key.asc"
+
+    # Export subkeys before transfer
+    gpg --armor --export-secret-subkeys "${key_id}" \
+        >"${backup_path}/gpg-subkeys.asc"
+
+    # Copy SSH public keys
+    cp "${HOME}/.ssh/"*.pub "${backup_path}/" 2>/dev/null || true
+
+    # Capture YubiKey status
+    ykman info >"${backup_path}/yubikey-status.txt"
+    gpg --card-status >>"${backup_path}/yubikey-status.txt"
+
+    # Create README
+    cat >"${backup_path}/README.txt" <<EOF
+YubiKey Backup - ${backup_timestamp}
+=====================================
+
+Contents:
+---------
+- gpg-master-key.asc:  GPG master private key (KEEP SECURE!)
+- gpg-public-key.asc:  GPG public key (safe to share)
+- gpg-subkeys.asc:     GPG subkeys backup (before transfer)
+- *.pub:               SSH public keys
+- yubikey-status.txt:  YubiKey configuration snapshot
+
+Restoration:
+------------
+To restore keys to a new YubiKey:
+
+1. Import master key:
+   gpg --import gpg-master-key.asc
+
+2. Run setup script in load mode:
+   yubikey-setup.sh --mode load --backup ${backup_path}
+
+IMPORTANT:
+----------
+- Store this backup in a SECURE, ENCRYPTED location
+- Use full-disk encryption or encrypted USB drive
+- Keep offline (not in cloud storage)
+- Test restoration procedure periodically
+
+Key ID: ${key_id}
+Created: ${backup_timestamp}
+EOF
+
+    # Set restrictive permissions
+    chmod 700 "${backup_path}"
+    chmod 600 "${backup_path}"/*.asc
+
+    log_success "Backup created: ${backup_path}"
+    log_warning "IMPORTANT: Store backup securely offline (encrypted)"
+}
+```
+
+### User Input Validation
+
+```bash
+# Secure PIN input (no echo)
+read_pin() {
+    local prompt="$1"
+    local pin=""
+    local pin_confirm=""
+
+    while true; do
+        read -rsp "${prompt}: " pin
+        echo
+
+        # Validate PIN format (6-8 digits for user, 8 for admin)
+        if [[ ! $pin =~ ^[0-9]{6,8}$ ]]; then
+            log_error "PIN must be 6-8 digits"
+            continue
+        fi
+
+        read -rsp "Confirm PIN: " pin_confirm
+        echo
+
+        if [[ "$pin" != "$pin_confirm" ]]; then
+            log_error "PINs do not match"
+            continue
+        fi
+
+        break
+    done
+
+    echo "$pin"
+}
+
+# Email validation
+validate_email() {
+    local email="$1"
+
+    if [[ ! $email =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}$ ]]; then
+        log_error "Invalid email format: ${email}"
+        return 1
+    fi
+
+    return 0
+}
+
+# Explicit user confirmation for destructive operations
+confirm_operation() {
+    local prompt="$1"
+    local response
+
+    read -rp "${prompt} [y/N]: " response
+    case "$response" in
+        [yY][eE][sS]|[yY])
+            return 0
+            ;;
+        *)
+            log_warning "Operation cancelled by user"
+            return 1
+            ;;
+    esac
+}
+```
+
+### Git Integration
+
+```bash
+# Configure Git for commit signing
+configure_git_signing() {
+    local key_id="$1"
+    local name="$2"
+    local email="$3"
+
+    log_info "Configuring Git for commit signing..."
+
+    # Configure signing key
+    git config --global user.signingkey "${key_id}"
+    git config --global commit.gpgsign true
+    git config --global tag.gpgsign true
+    git config --global gpg.program gpg
+
+    # Set user name and email if provided
+    if [[ -n "$name" ]]; then
+        git config --global user.name "${name}"
+    fi
+
+    if [[ -n "$email" ]]; then
+        git config --global user.email "${email}"
+    fi
+
+    log_success "Git configured for automatic commit signing"
+
+    # Test signing
+    if echo "test" | gpg --clearsign >/dev/null 2>&1; then
+        log_success "GPG signing test passed"
+    else
+        log_warning "GPG signing test failed - check YubiKey and PIN"
+    fi
+}
+```
+
+### Testing and Verification
+
+```bash
+# Comprehensive verification
+verify_setup() {
+    local key_id="$1"
+
+    log_info "Verifying YubiKey setup..."
+
+    # Display YubiKey info
+    log_info "YubiKey information:"
+    ykman info
+
+    # Display GPG card status
+    log_info "GPG card status:"
+    gpg --card-status
+
+    # Test GPG signing
+    log_info "Testing GPG signing..."
+    if echo "test signature" | gpg --clearsign >/dev/null 2>&1; then
+        log_success "✓ GPG signing works"
+    else
+        log_error "✗ GPG signing failed"
+    fi
+
+    # Test SSH key listing
+    log_info "Available SSH keys:"
+    ssh-add -L 2>/dev/null || log_warning "No SSH keys in agent"
+
+    # Display public key for distribution
+    log_info "GPG public key (share this):"
+    gpg --armor --export "${key_id}"
+
+    log_success "Verification complete"
+}
+```
+
+### Security Best Practices
+
+**Critical Security Rules**:
+1. **Never hardcode PINs or secrets** - always prompt or use secure storage
+2. **Shred temporary files** - use `shred -u` instead of `rm`
+3. **Validate all user inputs** - sanitize paths, emails, PINs
+4. **Warn before destructive operations** - require explicit confirmation
+5. **Log operations** - maintain audit trail (but never log secrets)
+6. **Set restrictive permissions** - 600 for keys, 700 for directories
+7. **Use touch policies** - prevent silent key usage by malware
+8. **Create comprehensive backups** - before any destructive operation
+9. **Test restoration procedures** - verify backups actually work
+10. **Secure backup storage** - offline, encrypted, multiple locations
+
+**Common Anti-Patterns to Avoid**:
+- ❌ Using default PINs in production
+- ❌ Skipping backup creation
+- ❌ Logging PINs or private keys
+- ❌ Proceeding without user confirmation on destructive operations
+- ❌ Using `rm` instead of `shred` for sensitive files
+- ❌ Storing backups in cloud services without encryption
+- ❌ Not testing backup restoration
+- ❌ Missing error handling for YubiKey disconnection
+- ❌ Skipping input validation
+- ❌ Not setting touch policies
+
+### Directory Structure
+
+```
+scripts/yubikey-tools/
+├── yubikey-setup.sh          # Main script
+├── README.md                 # Comprehensive documentation
+├── DEVELOPMENT_PLAN.md       # Development roadmap
+├── docs/
+│   ├── TROUBLESHOOTING.md   # Common issues and solutions
+│   ├── SECURITY.md          # Security best practices
+│   └── EXAMPLES.md          # Usage examples
+├── tests/
+│   ├── test-prerequisites.sh
+│   ├── test-key-generation.sh
+│   └── test-backup-restore.sh
+└── .gitignore               # Exclude logs and backups
+```
+
+### Testing Requirements
+
+```bash
+# ShellCheck compliance
+shellcheck -x yubikey-setup.sh
+
+# Test prerequisites
+test_prerequisites() {
+    log_info "Testing prerequisite checks..."
+    check_prerequisites
+}
+
+# Test with mock YubiKey (for CI/CD)
+test_without_yubikey() {
+    # Mock ykman for testing
+    ykman() {
+        case $1 in
+            list)
+                echo "YubiKey 5 NFC (5.4.3) [OTP+FIDO+CCID]"
+                ;;
+            info)
+                echo "Device type: YubiKey 5 NFC"
+                ;;
+        esac
+    }
+    export -f ykman
+
+    # Run tests
+    check_prerequisites
+}
+
+# Integration test checklist
+integration_test_checklist() {
+    cat <<EOF
+Manual Integration Testing Checklist:
+======================================
+
+Prerequisites:
+[ ] Fresh YubiKey 5 NFC
+[ ] GPG >= 2.2.0 installed
+[ ] ykman >= 4.0.0 installed
+[ ] ssh-keygen >= 8.2 installed
+
+Generate Mode Tests:
+[ ] Generate RSA 4096-bit keys
+[ ] Generate Ed25519 keys
+[ ] Transfer subkeys to YubiKey
+[ ] Generate FIDO2 SSH key
+[ ] Configure GPG agent for SSH
+[ ] Configure Git signing
+[ ] Create backup
+[ ] Verify all operations
+
+Load Mode Tests:
+[ ] Import keys from backup
+[ ] Transfer subkeys to second YubiKey
+[ ] Verify key functionality
+[ ] Test SSH authentication
+[ ] Test Git commit signing
+[ ] Verify touch requirements
+
+Security Tests:
+[ ] PIN retry limits enforced
+[ ] Touch policy prevents silent usage
+[ ] Backup files have correct permissions
+[ ] No secrets in logs
+[ ] Shredding of temporary files works
+[ ] User confirmation required for destructive ops
+
+Cross-Platform Tests:
+[ ] Test on Ubuntu Linux
+[ ] Test on Fedora Linux
+[ ] Test on macOS
+[ ] Test on WSL2
+EOF
+}
+```
+
+### Documentation Requirements
+
+All YubiKey scripts must include:
+1. **Comprehensive README.md** with usage examples, prerequisites, troubleshooting
+2. **Inline comments** explaining complex operations and security decisions
+3. **Usage function** showing all command-line options
+4. **Security warnings** for destructive operations
+5. **Backup instructions** with restoration procedures
+6. **Platform compatibility** notes (Linux, macOS, WSL2)
+7. **Troubleshooting guide** for common issues
+8. **Testing procedures** for validation
+
+### Example Complete Workflow
+
+```bash
+# scripts/yubikey-tools/yubikey-setup.sh
+
+#!/usr/bin/env bash
+set -euo pipefail
+
+# [Include all helper functions above]
+
+main() {
+    log_info "YubiKey Setup Script v${SCRIPT_VERSION}"
+
+    # Parse arguments
+    parse_arguments "$@"
+
+    # Check prerequisites
+    check_prerequisites
+
+    # Determine mode (interactive or specified)
+    if [[ -z "$MODE" ]]; then
+        MODE=$(select_mode_interactive)
+    fi
+
+    case "$MODE" in
+        generate)
+            mode_generate
+            ;;
+        load)
+            mode_load
+            ;;
+        *)
+            log_error "Invalid mode: ${MODE}"
+            exit 1
+            ;;
+    esac
+
+    log_success "YubiKey setup complete!"
+}
+
+main "$@"
+```
+
 ## Deprecated Features - Never Use
 
 ### Terraform
