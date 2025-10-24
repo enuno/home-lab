@@ -31,12 +31,13 @@ This script provides comprehensive automation for configuring YubiKey 5 NFC devi
 ### Key Features
 
 - **Automated YubiKey Initialization**: Sets PINs and configures touch policies
-- **Dual-Mode Operation**: Supports both generating new keys and loading existing keys
-- **GPG Key Management**: Creates a standard GPG key hierarchy (master key with signing, encryption, and authentication subkeys) and transfers the subkeys to the YubiKey
+- **Triple-Mode Operation**: Supports generating new keys, loading existing keys, and backing up YubiKey
+- **GPG Key Management**: Creates a standard GPG key hierarchy (master key with signing, encryption, and authentication subkeys) and transfers the subkeys to the YubiKey using reliable expect-based automation
+- **Comprehensive Verification**: Validates all keys are properly transferred to YubiKey before creating backups, with detailed error diagnostics
 - **SSH Configuration**: Generates FIDO2 resident SSH keys and configures the GPG agent for SSH authentication
 - **Git Integration**: Automatically configures Git for commit and tag signing with the GPG key
-- **Comprehensive Backups**: Creates secure, timestamped backups of critical key material and configuration data
-- **Security Focused**: Implements best practices such as touch-to-confirm policies, PIN protection, and secure key handling
+- **Secure Backups**: Creates timestamped backups only after successful key verification, with clear documentation of what's backed up
+- **Security Focused**: Implements best practices including touch-to-confirm policies, PIN protection, mandatory verification, and detailed audit logging
 
 ### Target Users
 
@@ -57,6 +58,7 @@ Before running the script, ensure the following dependencies are installed on yo
 | `gpg` (GnuPG) | 2.2.0 | GPG key generation and management |
 | `ykman` (YubiKey Manager) | 4.0.0 | YubiKey configuration and management |
 | `ssh-keygen` (OpenSSH) | 8.2 | FIDO2 SSH key generation |
+| `expect` | Any | Automated interactive key transfer to YubiKey |
 | `pinentry` | Any variant | Secure PIN entry for GPG operations |
 
 #### Optional Dependencies
@@ -108,9 +110,18 @@ ykman --version
 # Check SSH keygen
 ssh-keygen -V
 
+# Check expect
+expect -version
+
 # Check Git (optional)
 git --version
 ```
+
+**Installing expect**:
+- **macOS**: `brew install expect`
+- **Ubuntu/Debian**: `sudo apt-get install expect`
+- **Fedora/RHEL**: `sudo yum install expect`
+- **Arch**: `sudo pacman -S expect`
 
 ---
 
@@ -142,6 +153,14 @@ To load keys from a backup onto a new or secondary YubiKey:
 ./yubikey-setup.sh --mode load --backup /path/to/yubikey-backup-YYYY-MM-DD-HHMMSS --yes
 ```
 
+### Non-Interactive Mode: Backup Existing YubiKey
+
+To create a backup of keys already on a YubiKey:
+
+```bash
+./yubikey-setup.sh --mode backup --yes
+```
+
 ---
 
 ## 4. Detailed Usage
@@ -152,7 +171,7 @@ The script can be customized with the following command-line arguments:
 Usage: yubikey-setup.sh [OPTIONS]
 
 Options:
-  -m, --mode MODE          Operation mode: 'generate' or 'load' (default: interactive)
+  -m, --mode MODE          Operation mode: 'generate', 'load', or 'backup' (default: interactive)
   -n, --name NAME          Cardholder name (required for generate mode)
   -e, --email EMAIL        Cardholder email (required for generate mode)
   -b, --backup PATH        Backup directory path for load mode
@@ -205,11 +224,17 @@ Options:
 ./yubikey-setup.sh --mode generate --name "John Doe" --email "john@example.com" --verbose
 ```
 
+**Example 7: Backup Existing YubiKey**
+
+```bash
+./yubikey-setup.sh --mode backup
+```
+
 ---
 
 ## 5. Operational Modes
 
-The script operates in two distinct modes, each designed for specific use cases.
+The script operates in three distinct modes, each designed for specific use cases.
 
 ### Mode 1: Generate New Keys (`generate`)
 
@@ -222,12 +247,13 @@ The generate mode executes the following steps in sequence:
 1. **Detect YubiKey**: Ensures a YubiKey is connected and recognized by the system
 2. **Initialize YubiKey**: Resets the OpenPGP applet, sets new User and Admin PINs, and applies the specified touch policy
 3. **Generate GPG Keys**: Creates a new GPG master key (for certification) and three subkeys (for signing, encryption, and authentication)
-4. **Transfer Subkeys**: Moves the newly generated GPG subkeys to the YubiKey (destructive operation)
-5. **Generate SSH Key**: Creates a FIDO2 resident SSH key (`ecdsa-sk`) on the YubiKey
-6. **Configure GPG Agent**: Sets up the GPG agent to provide SSH authentication using the GPG authentication subkey
-7. **Configure Git**: Sets up global Git configuration to use the new GPG key for signing commits and tags
-8. **Create Backup**: Generates a comprehensive, timestamped backup of the GPG master key, public keys, and configuration details
-9. **Verify Functionality**: Performs checks to ensure all components are working correctly
+4. **Transfer Subkeys**: Moves the newly generated GPG subkeys to the YubiKey using expect-based automation (destructive operation)
+5. **Verify Key Transfer**: Validates all three keys are properly loaded on YubiKey before proceeding (see Verification section below)
+6. **Generate SSH Key**: Creates a FIDO2 resident SSH key (`ecdsa-sk`) on the YubiKey
+7. **Configure GPG Agent**: Sets up the GPG agent to provide SSH authentication using the GPG authentication subkey
+8. **Configure Git**: Sets up global Git configuration to use the new GPG key for signing commits and tags
+9. **Create Backup**: Generates a comprehensive, timestamped backup only after successful key verification
+10. **Verify Functionality**: Performs final checks to ensure all components are working correctly
 
 #### Use Cases
 
@@ -251,10 +277,11 @@ The load mode executes the following steps in sequence:
 1. **Detect YubiKey**: Ensures a YubiKey is connected and recognized by the system
 2. **Initialize YubiKey**: Resets the OpenPGP applet and sets new User and Admin PINs
 3. **Import GPG Keys**: Imports the GPG master key from the specified backup location
-4. **Transfer Subkeys**: Moves the existing GPG subkeys to the YubiKey (destructive operation)
-5. **Configure GPG Agent**: Sets up the GPG agent for SSH authentication
-6. **Configure Git**: Sets up global Git configuration for commit signing
-7. **Verify Functionality**: Performs checks to ensure the loaded keys are functional
+4. **Transfer Subkeys**: Moves the existing GPG subkeys to the YubiKey using expect-based automation (destructive operation)
+5. **Verify Key Transfer**: Validates all three keys are properly loaded on YubiKey before proceeding
+6. **Configure GPG Agent**: Sets up the GPG agent for SSH authentication
+7. **Configure Git**: Sets up global Git configuration for commit signing
+8. **Verify Functionality**: Performs final checks to ensure the loaded keys are functional
 
 #### Use Cases
 
@@ -266,6 +293,42 @@ The load mode executes the following steps in sequence:
 #### Important Notes
 
 When loading existing keys, ensure that you have a secure backup of the GPG master key. The script expects the backup to be in a specific format (either a directory with standard filenames or a single GPG key file).
+
+### Mode 3: Backup Existing YubiKey (`backup`)
+
+This mode creates a backup of public keys and configuration from a YubiKey that already has keys loaded on it. Note that private keys cannot be exported from YubiKey hardware - this backup only contains public keys and stubs.
+
+#### Workflow
+
+The backup mode executes the following steps in sequence:
+
+1. **Detect YubiKey**: Ensures a YubiKey is connected and recognized by the system
+2. **Verify Keys Present**: Checks that all three key slots (signature, encryption, authentication) have keys loaded
+3. **Extract Card Information**: Retrieves cardholder name, email, and key ID from the YubiKey
+4. **Display Current Status**: Shows comprehensive card status and key information
+5. **Create Public Key Backup**: Exports public keys, card configuration, and YubiKey status
+6. **Generate Documentation**: Creates README and documentation explaining backup contents
+
+#### Use Cases
+
+- Creating backups of public keys for distribution
+- Documenting YubiKey configuration
+- Backing up public keys before key rotation
+- Creating reference documentation for key management
+
+#### Important Notes
+
+**What is backed up:**
+- ✓ GPG public key
+- ✓ GPG subkey stubs (references to hardware keys)
+- ✓ SSH public keys (if available)
+- ✓ YubiKey configuration and status
+
+**What is NOT backed up (hardware-protected):**
+- ✗ Private keys (stored securely on YubiKey chip and cannot be exported)
+- ✗ PINs (never exported for security)
+
+This mode is useful for distributing public keys or documenting your YubiKey setup, but it does not provide a complete restore capability since private keys remain on the hardware.
 
 ---
 
@@ -332,7 +395,89 @@ The script configures two PINs for the YubiKey:
 
 ---
 
-## 7. How the Script Functions
+## 7. Key Transfer and Verification
+
+### Expect-Based Key Transfer
+
+The script uses `expect` (a tool for automating interactive programs) to handle the GPG key transfer process. This approach is necessary because GPG's `--edit-key` interface with `keytocard` commands requires interactive input that cannot be reliably automated with simple heredocs or pipes.
+
+#### How It Works
+
+1. **Expect Script Generation**: Creates a temporary expect script that automates the interactive GPG session
+2. **Interactive Automation**: The script:
+   - Spawns `gpg --expert --edit-key <KEY_ID>`
+   - Selects each subkey (`key 1`, `key 2`, `key 3`)
+   - Executes `keytocard` command for each
+   - Selects the appropriate slot (1=signature, 2=encryption, 3=authentication)
+   - Provides Admin PIN when prompted
+   - Handles YubiKey touch confirmations
+   - Saves and exits
+3. **Cleanup**: Removes the temporary expect script after completion
+
+#### Why Expect?
+
+Previous approaches using custom pinentry scripts failed because:
+- GPG cannot access `/dev/tty` in non-interactive environments
+- Heredoc and pipe combinations don't handle GPG's interactive prompts reliably
+- GPG agent's pinentry protocol requires proper TTY allocation
+
+The expect-based solution provides a real pseudo-TTY and properly handles all interactive prompts.
+
+### Comprehensive Verification
+
+After key transfer, the script performs mandatory verification before creating any backups or proceeding with configuration.
+
+#### Verification Process
+
+1. **Card Status Check**: Runs `gpg --card-status` to retrieve current YubiKey state
+2. **Key Slot Validation**: Verifies each of the three key slots:
+   - Signature key slot (must not be `[none]`)
+   - Encryption key slot (must not be `[none]`)
+   - Authentication key slot (must not be `[none]`)
+3. **Key File Analysis**: Checks `~/.gnupg/private-keys-v1.d/` for key files:
+   - Files >500 bytes = full private keys (transfer failed)
+   - Files <500 bytes = stubs (transfer succeeded)
+
+#### If Verification Fails
+
+The script provides a detailed error report including:
+
+**Diagnostic Information:**
+- Full GPG card status output
+- List of key files with sizes (stub vs full key detection)
+- Key ID and fingerprint information
+
+**Possible Causes:**
+1. YubiKey touch policy requires physical touch (user didn't touch the key)
+2. Admin PIN was incorrect or not accepted
+3. YubiKey is locked or has PIN retry counter at 0
+4. Expect script timed out or encountered unexpected prompts
+5. GPG version incompatibility
+
+**Troubleshooting Steps:**
+1. Check YubiKey PIN retry counter: `gpg --card-status | grep 'PIN retry counter'`
+2. Verify YubiKey is properly connected: `ykman list`
+3. Try the transfer manually: `gpg --expert --edit-key <KEY_ID>`
+4. Check the log file for details: `/tmp/yubikey-setup-*.log`
+
+**Script Behavior on Failure:**
+- **Exits immediately** with error status
+- **No backup is created** (prevents false sense of security)
+- **Detailed diagnostics** help identify the root cause
+- **Log file** contains full command output for debugging
+
+#### Security Benefits
+
+The mandatory verification ensures:
+- Keys are actually on hardware before backup creation
+- No false sense of security from incomplete transfers
+- Clear indication of success or failure
+- Detailed diagnostics for troubleshooting
+- Prevents backing up systems where private keys remain on disk
+
+---
+
+## 8. How the Script Functions
 
 The script is organized into several modules, each responsible for a specific part of the configuration process. Understanding these modules helps in troubleshooting and customization.
 
@@ -478,15 +623,27 @@ This module performs post-configuration checks:
 **Generate Mode Flow:**
 ```
 Start → Check Prerequisites → Detect YubiKey → Initialize YubiKey →
-Generate GPG Keys → Transfer Subkeys → Generate SSH Keys →
-Configure GPG Agent → Configure Git → Create Backup → Verify → End
+Generate GPG Keys → Transfer Subkeys (expect) → Verify Keys on YubiKey →
+[If verification fails: Exit with detailed error] →
+[If verification succeeds:] Generate SSH Keys → Configure GPG Agent →
+Configure Git → Create Backup → Final Verification → End
 ```
 
 **Load Mode Flow:**
 ```
 Start → Check Prerequisites → Detect YubiKey → Initialize YubiKey →
-Import GPG Keys → Transfer Subkeys → Configure GPG Agent →
-Configure Git → Verify → End
+Import GPG Keys → Transfer Subkeys (expect) → Verify Keys on YubiKey →
+[If verification fails: Exit with detailed error] →
+[If verification succeeds:] Configure GPG Agent → Configure Git →
+Final Verification → End
+```
+
+**Backup Mode Flow:**
+```
+Start → Check Prerequisites → Detect YubiKey → Check Keys Present →
+[If no keys: Exit with error] →
+[If keys present:] Extract Card Info → Display Status →
+Create Public Key Backup → Generate Documentation → End
 ```
 
 ### Logging and Error Handling
@@ -649,6 +806,62 @@ The script warns and requires confirmation before:
 1. Check current touch policy: `ykman openpgp info`
 2. Set touch policy: `ykman openpgp keys set-touch sig on -a ADMIN_PIN`
 3. Repeat for encryption and authentication: `enc` and `aut`
+
+#### Issue: Key Transfer Verification Failed
+
+**Symptom**: Script reports "Key transfer verification FAILED!" and exits without creating backup.
+
+**What This Means**: The GPG subkeys were not successfully transferred to the YubiKey. The verification detected that either:
+- One or more key slots on the YubiKey are empty (`[none]`)
+- The private key files on disk are still full keys (>500 bytes) instead of stubs
+
+**Diagnostic Output**: The script provides a detailed error report showing:
+- Full card status from `gpg --card-status`
+- Key file sizes in `~/.gnupg/private-keys-v1.d/`
+- Analysis of which keys succeeded/failed
+
+**Common Causes and Solutions**:
+
+1. **YubiKey Touch Required But Not Performed**
+   - **Cause**: Touch policy is set to `on` but you didn't touch the YubiKey during transfer
+   - **Solution**: Re-run the script and touch the YubiKey when prompted during key transfer
+
+2. **Incorrect Admin PIN**
+   - **Cause**: The Admin PIN was entered incorrectly or doesn't match what's set on the YubiKey
+   - **Solution**: Verify your Admin PIN is correct, check retry counter: `gpg --card-status | grep 'PIN retry counter'`
+
+3. **PIN Retry Counter Exhausted**
+   - **Cause**: Too many incorrect PIN attempts have locked the YubiKey
+   - **Solution**: Reset with correct Admin PIN or factory reset: `ykman openpgp reset -f` (WARNING: deletes all keys)
+
+4. **Expect Script Timeout**
+   - **Cause**: The interactive session timed out (default 60 seconds)
+   - **Solution**: Check the log file `/tmp/yubikey-setup-*.log` for timeout errors
+
+5. **GPG Agent Issues**
+   - **Cause**: GPG agent not responding or in bad state
+   - **Solution**: Kill and restart GPG agent: `gpgconf --kill gpg-agent`
+
+**Prevention**:
+- Use the script in a stable environment with reliable USB connection
+- Respond promptly to YubiKey touch prompts
+- Ensure correct PINs before starting
+- Check YubiKey retry counters before running: `gpg --card-status`
+
+**Manual Verification**:
+To manually check if keys transferred successfully:
+```bash
+# Check card status
+gpg --card-status
+
+# Look for key fingerprints (not [none]) in:
+# - Signature key .....
+# - Encryption key....
+# - Authentication key
+
+# Check key files (should be stubs <500 bytes)
+ls -lh ~/.gnupg/private-keys-v1.d/
+```
 
 #### Issue: Backup Import Fails
 
@@ -829,4 +1042,4 @@ This script was developed based on the comprehensive development plan outlined i
 
 **Author**: Manus AI
 **Version**: 1.0.0
-**Last Updated**: October 23, 2025
+**Last Updated**: October 24, 2025
