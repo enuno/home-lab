@@ -1,3 +1,0 @@
-[submodule "mcp-servers/unifi-network-mcp"]
-	path = mcp-servers/unifi-network-mcp
-	url = https://github.com/sirkirby/unifi-network-mcp.git
