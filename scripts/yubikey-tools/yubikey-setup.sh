@@ -447,99 +447,211 @@ transfer_gpg_keys_to_yubikey() {
 
     log_info "Transferring subkeys for key ID: ${key_id}"
 
-    # Create a temporary pinentry script to provide Admin PIN
-    local pinentry_script="/tmp/pinentry-yubikey-$$.sh"
-    cat > "${pinentry_script}" <<'PINENTRY_EOF'
-#!/bin/bash
-echo "OK Pleased to meet you"
-while IFS= read -r cmd; do
-    case "$cmd" in
-        GETPIN*)
-            echo "D ADMIN_PIN_PLACEHOLDER"
-            echo "OK"
-            ;;
-        *)
-            echo "OK"
-            ;;
-    esac
-done
-PINENTRY_EOF
+    # Create a temporary script to automate the keytocard operation
+    local transfer_script="/tmp/yubikey-transfer-$$.exp"
 
-    # Replace placeholder with actual Admin PIN
-    sed -i.bak "s/ADMIN_PIN_PLACEHOLDER/${ADMIN_PIN}/" "${pinentry_script}"
-    chmod +x "${pinentry_script}"
-
-    # Save original GPG_AGENT_INFO and pinentry program
-    local original_pinentry
-    original_pinentry=$(gpgconf --list-options gpg-agent | grep pinentry-program | cut -d: -f10)
-
-    # Configure GPG to use our custom pinentry
-    gpgconf --kill gpg-agent
-    mkdir -p "${HOME}/.gnupg"
-    echo "pinentry-program ${pinentry_script}" > "${HOME}/.gnupg/gpg-agent.conf.tmp"
-    echo "allow-loopback-pinentry" >> "${HOME}/.gnupg/gpg-agent.conf.tmp"
-
-    # Backup existing config if present
-    if [[ -f "${HOME}/.gnupg/gpg-agent.conf" ]]; then
-        cp "${HOME}/.gnupg/gpg-agent.conf" "${HOME}/.gnupg/gpg-agent.conf.backup"
+    # Check if expect is available
+    if ! command_exists expect; then
+        log_error "The 'expect' tool is required for automated key transfer but is not installed."
+        log_info "Please install expect:"
+        log_info "  macOS: brew install expect"
+        log_info "  Linux: apt-get install expect / yum install expect"
+        exit 1
     fi
-    mv "${HOME}/.gnupg/gpg-agent.conf.tmp" "${HOME}/.gnupg/gpg-agent.conf"
 
-    # Restart GPG agent with new pinentry
-    gpg-agent --daemon >/dev/null 2>&1
+    # Create expect script to handle the interactive keytocard operations
+    cat > "${transfer_script}" <<EXPECT_EOF
+#!/usr/bin/expect -f
+set timeout 60
+set key_id [lindex \$argv 0]
+set admin_pin [lindex \$argv 1]
 
-    log_info "Custom pinentry configured for YubiKey Admin PIN"
+# Transfer signing subkey (key 1 -> slot 1)
+spawn gpg --expert --edit-key \$key_id
+expect "gpg>"
+send "key 1\r"
+expect "gpg>"
+send "keytocard\r"
+expect "Your selection?"
+send "1\r"
+expect {
+    "Admin PIN" {
+        send "\$admin_pin\r"
+        exp_continue
+    }
+    "Replace existing key?" {
+        send "y\r"
+        exp_continue
+    }
+    "gpg>" {
+        send "key 1\r"
+    }
+}
+expect "gpg>"
+
+# Transfer encryption subkey (key 2 -> slot 2)
+send "key 2\r"
+expect "gpg>"
+send "keytocard\r"
+expect "Your selection?"
+send "2\r"
+expect {
+    "Admin PIN" {
+        send "\$admin_pin\r"
+        exp_continue
+    }
+    "Replace existing key?" {
+        send "y\r"
+        exp_continue
+    }
+    "gpg>" {
+        send "key 2\r"
+    }
+}
+expect "gpg>"
+
+# Transfer authentication subkey (key 3 -> slot 3)
+send "key 3\r"
+expect "gpg>"
+send "keytocard\r"
+expect "Your selection?"
+send "3\r"
+expect {
+    "Admin PIN" {
+        send "\$admin_pin\r"
+        exp_continue
+    }
+    "Replace existing key?" {
+        send "y\r"
+        exp_continue
+    }
+    "gpg>" {
+        # continue
+    }
+}
+expect "gpg>"
+send "save\r"
+expect eof
+EXPECT_EOF
+
+    chmod +x "${transfer_script}"
 
     # Transfer signing subkey (slot 1)
     log_info "Transferring signing subkey to slot 1..."
     log_warning "You may need to touch your YubiKey to confirm the operation."
 
-    echo -e "key 1\nkeytocard\n1\nsave" | gpg --batch --passphrase '' --command-fd 0 --edit-key "${key_id}" 2>&1 | tee -a "${LOG_FILE}"
+    # Run the expect script
+    export GPG_TTY=$(tty)
+    "${transfer_script}" "${key_id}" "${ADMIN_PIN}" 2>&1 | tee -a "${LOG_FILE}"
 
-    if [[ ${PIPESTATUS[1]} -ne 0 ]]; then
-        log_warning "Signing subkey transfer may have failed. Check output above."
-    fi
+    # Clean up
+    rm -f "${transfer_script}"
 
-    # Transfer encryption subkey (slot 2)
-    log_info "Transferring encryption subkey to slot 2..."
-    log_warning "You may need to touch your YubiKey to confirm the operation."
+    log_success "GPG subkey transfer commands completed."
 
-    echo -e "key 2\nkeytocard\n2\nsave" | gpg --batch --passphrase '' --command-fd 0 --edit-key "${key_id}" 2>&1 | tee -a "${LOG_FILE}"
+    # Note: Verification is done separately by verify_keys_on_yubikey function
+}
 
-    if [[ ${PIPESTATUS[1]} -ne 0 ]]; then
-        log_warning "Encryption subkey transfer may have failed. Check output above."
-    fi
+# Verify that all keys are properly loaded on YubiKey
+verify_keys_on_yubikey() {
+    log_step "Verifying keys are loaded on YubiKey..."
 
-    # Transfer authentication subkey (slot 3)
-    log_info "Transferring authentication subkey to slot 3..."
-    log_warning "You may need to touch your YubiKey to confirm the operation."
+    local card_status
+    card_status=$(gpg --card-status 2>&1)
 
-    echo -e "key 3\nkeytocard\n3\nsave" | gpg --batch --passphrase '' --command-fd 0 --edit-key "${key_id}" 2>&1 | tee -a "${LOG_FILE}"
+    local sig_key_status
+    local enc_key_status
+    local aut_key_status
+    local verification_failed=false
 
-    if [[ ${PIPESTATUS[1]} -ne 0 ]]; then
-        log_warning "Authentication subkey transfer may have failed. Check output above."
-    fi
-
-    # Restore original GPG agent configuration
-    gpgconf --kill gpg-agent
-    if [[ -f "${HOME}/.gnupg/gpg-agent.conf.backup" ]]; then
-        mv "${HOME}/.gnupg/gpg-agent.conf.backup" "${HOME}/.gnupg/gpg-agent.conf"
+    # Check signature key
+    sig_key_status=$(echo "${card_status}" | grep "Signature key")
+    if echo "${sig_key_status}" | grep -qv "\[none\]" && [[ -n "${sig_key_status}" ]]; then
+        log_success "✓ Signing key on card"
     else
-        rm -f "${HOME}/.gnupg/gpg-agent.conf"
+        log_error "✗ Signing key NOT on card"
+        verification_failed=true
     fi
 
-    # Clean up temporary files
-    rm -f "${pinentry_script}" "${pinentry_script}.bak"
+    # Check encryption key
+    enc_key_status=$(echo "${card_status}" | grep "Encryption key")
+    if echo "${enc_key_status}" | grep -qv "\[none\]" && [[ -n "${enc_key_status}" ]]; then
+        log_success "✓ Encryption key on card"
+    else
+        log_error "✗ Encryption key NOT on card"
+        verification_failed=true
+    fi
 
-    # Restart GPG agent with original config
-    gpg-agent --daemon >/dev/null 2>&1
+    # Check authentication key
+    aut_key_status=$(echo "${card_status}" | grep "Authentication key")
+    if echo "${aut_key_status}" | grep -qv "\[none\]" && [[ -n "${aut_key_status}" ]]; then
+        log_success "✓ Authentication key on card"
+    else
+        log_error "✗ Authentication key NOT on card"
+        verification_failed=true
+    fi
 
-    log_success "GPG subkey transfer completed. Verifying..."
+    if [[ "${verification_failed}" == true ]]; then
+        log_error "Key transfer verification FAILED!"
+        echo
+        log_error "Detailed Error Report:"
+        log_error "====================="
+        echo
+        log_info "Full card status:"
+        echo "${card_status}" | tee -a "${LOG_FILE}"
+        echo
+        log_info "Checking for key files on disk (should be stubs, not full keys):"
 
-    # Verify that keys were transferred
-    gpg --card-status 2>&1 | grep -q "Signature key" && log_success "✓ Signing key on card" || log_error "✗ Signing key NOT on card"
-    gpg --card-status 2>&1 | grep -q "Encryption key" && log_success "✓ Encryption key on card" || log_error "✗ Encryption key NOT on card"
-    gpg --card-status 2>&1 | grep -q "Authentication key" && log_success "✓ Authentication key on card" || log_error "✗ Authentication key NOT on card"
+        # Get the key ID
+        local key_id
+        if [[ -f /tmp/yubikey-key-id.txt ]]; then
+            key_id=$(cat /tmp/yubikey-key-id.txt)
+        fi
+
+        if [[ -n "${key_id}" ]]; then
+            log_info "Key ID: ${key_id}"
+
+            # Check if keys are still on disk (they should be stubs if transfer succeeded)
+            local keygrips
+            keygrips=$(gpg --list-secret-keys --with-keygrip "${key_id}" 2>/dev/null | grep "Keygrip" | awk '{print $3}')
+
+            if [[ -n "${keygrips}" ]]; then
+                log_info "Checking key files in ~/.gnupg/private-keys-v1.d/:"
+                for grip in ${keygrips}; do
+                    if [[ -f "${HOME}/.gnupg/private-keys-v1.d/${grip}.key" ]]; then
+                        local file_size
+                        file_size=$(wc -c < "${HOME}/.gnupg/private-keys-v1.d/${grip}.key")
+                        if [[ ${file_size} -gt 500 ]]; then
+                            log_error "  ${grip}.key: ${file_size} bytes (FULL KEY - transfer failed)"
+                        else
+                            log_info "  ${grip}.key: ${file_size} bytes (stub - OK)"
+                        fi
+                    fi
+                done
+            fi
+        fi
+
+        echo
+        log_error "Possible causes:"
+        log_error "  1. YubiKey touch policy requires physical touch (try touching the key)"
+        log_error "  2. Admin PIN was incorrect or not accepted"
+        log_error "  3. YubiKey is locked or has PIN retry counter at 0"
+        log_error "  4. Expect script timed out or encountered unexpected prompts"
+        log_error "  5. GPG version incompatibility"
+        echo
+        log_info "Troubleshooting steps:"
+        log_info "  1. Check YubiKey PIN retry counter: gpg --card-status | grep 'PIN retry counter'"
+        log_info "  2. Verify YubiKey is properly connected: ykman list"
+        log_info "  3. Try the transfer manually: gpg --expert --edit-key ${key_id}"
+        log_info "  4. Check the log file for details: ${LOG_FILE}"
+        echo
+        log_error "Aborting backup creation - keys are not securely on YubiKey!"
+
+        return 1
+    fi
+
+    log_success "All keys verified successfully on YubiKey!"
+    return 0
 }
 
 # Import existing GPG keys from backup
@@ -914,6 +1026,13 @@ mode_generate() {
     generate_gpg_keys
     transfer_gpg_keys_to_yubikey
 
+    # Verify keys are on YubiKey before proceeding
+    if ! verify_keys_on_yubikey; then
+        log_error "YubiKey setup FAILED - keys were not successfully transferred to YubiKey."
+        log_error "No backup was created for security reasons."
+        exit 1
+    fi
+
     if [[ "${SKIP_SSH}" == false ]]; then
         generate_ssh_keys
         configure_gpg_ssh
@@ -956,6 +1075,12 @@ mode_load() {
     initialize_yubikey
     import_gpg_keys
     transfer_gpg_keys_to_yubikey
+
+    # Verify keys are on YubiKey before proceeding
+    if ! verify_keys_on_yubikey; then
+        log_error "YubiKey load FAILED - keys were not successfully transferred to YubiKey."
+        exit 1
+    fi
 
     if [[ "${SKIP_SSH}" == false ]]; then
         configure_gpg_ssh
