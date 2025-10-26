@@ -8,7 +8,8 @@
 #          loading pre-existing keys.
 #
 # Author: Automated by AI Assistant
-# Version: 1.0.0
+# Version: 1.1.0
+# Date: 2025-10-26
 # Repository: https://github.com/enuno/home-lab/scripts/
 ################################################################################
 
@@ -18,7 +19,7 @@ set -euo pipefail
 # Global Variables
 ################################################################################
 
-SCRIPT_VERSION="1.0.0"
+SCRIPT_VERSION="1.1.0"
 SCRIPT_NAME="$(basename "$0")"
 LOG_FILE="/tmp/yubikey-setup-$(date +%Y%m%d-%H%M%S).log"
 BACKUP_BASE_DIR="${HOME}/yubikey-backups"
@@ -97,6 +98,26 @@ log_step() {
 ################################################################################
 # Helper Functions
 ################################################################################
+
+# Restart GPG agent and scdaemon
+restart_gpg_daemons() {
+    log_debug "Restarting GPG daemons..."
+
+    # Kill all GPG-related daemons
+    gpgconf --kill gpg-agent 2>/dev/null || true
+    gpgconf --kill scdaemon 2>/dev/null || true
+
+    # Wait a moment for processes to fully terminate
+    sleep 1
+
+    # Restart gpg-agent (it will start scdaemon when needed)
+    gpgconf --launch gpg-agent 2>/dev/null || true
+
+    # Wait for daemons to initialize
+    sleep 1
+
+    log_debug "GPG daemons restarted"
+}
 
 # Display usage information
 usage() {
@@ -462,76 +483,91 @@ transfer_gpg_keys_to_yubikey() {
     # Create expect script to handle the interactive keytocard operations
     cat > "${transfer_script}" <<EXPECT_EOF
 #!/usr/bin/expect -f
-set timeout 60
+set timeout 120
 set key_id [lindex \$argv 0]
 set admin_pin [lindex \$argv 1]
 
+# Enable logging for debugging
+log_user 1
+exp_internal 0
+
+# Set TERM to dumb to disable fancy terminal features like bracketed paste
+set env(TERM) "dumb"
+
 # Transfer signing subkey (key 1 -> slot 1)
-spawn gpg --expert --edit-key \$key_id
-expect "gpg>"
+spawn env TERM=dumb gpg --expert --edit-key \$key_id
+expect -re "gpg>.*"
 send "key 1\r"
-expect "gpg>"
+expect -re "gpg>.*"
 send "keytocard\r"
-expect "Your selection?"
+expect -re "Your selection\\?.*"
 send "1\r"
 expect {
-    "Admin PIN" {
+    -re "(Admin PIN|PIN).*:" {
         send "\$admin_pin\r"
         exp_continue
     }
-    "Replace existing key?" {
+    -re "Replace existing key\\?" {
         send "y\r"
         exp_continue
     }
-    "gpg>" {
+    -re "gpg>.*" {
         send "key 1\r"
     }
 }
-expect "gpg>"
+expect -re "gpg>.*"
 
 # Transfer encryption subkey (key 2 -> slot 2)
 send "key 2\r"
-expect "gpg>"
+expect -re "gpg>.*"
 send "keytocard\r"
-expect "Your selection?"
+expect -re "Your selection\\?.*"
 send "2\r"
 expect {
-    "Admin PIN" {
+    -re "(Admin PIN|PIN).*:" {
         send "\$admin_pin\r"
         exp_continue
     }
-    "Replace existing key?" {
+    -re "Replace existing key\\?" {
         send "y\r"
         exp_continue
     }
-    "gpg>" {
+    -re "gpg>.*" {
         send "key 2\r"
     }
 }
-expect "gpg>"
+expect -re "gpg>.*"
 
 # Transfer authentication subkey (key 3 -> slot 3)
 send "key 3\r"
-expect "gpg>"
+expect -re "gpg>.*"
 send "keytocard\r"
-expect "Your selection?"
+expect -re "Your selection\\?.*"
 send "3\r"
 expect {
-    "Admin PIN" {
+    -re "(Admin PIN|PIN).*:" {
         send "\$admin_pin\r"
         exp_continue
     }
-    "Replace existing key?" {
+    -re "Replace existing key\\?" {
         send "y\r"
         exp_continue
     }
-    "gpg>" {
-        # continue
+    -re "gpg>.*" {
+        # All done, ready to save
     }
 }
-expect "gpg>"
+# Already at gpg> prompt from the expect block above
 send "save\r"
-expect eof
+expect {
+    eof {
+        puts "\\nKey transfer completed successfully"
+    }
+    timeout {
+        puts "\\nERROR: Timeout waiting for GPG to finish"
+        exit 1
+    }
+}
 EXPECT_EOF
 
     chmod +x "${transfer_script}"
@@ -542,12 +578,21 @@ EXPECT_EOF
 
     # Run the expect script
     export GPG_TTY=$(tty)
-    "${transfer_script}" "${key_id}" "${ADMIN_PIN}" 2>&1 | tee -a "${LOG_FILE}"
+    if "${transfer_script}" "${key_id}" "${ADMIN_PIN}" 2>&1 | tee -a "${LOG_FILE}"; then
+        log_success "GPG subkey transfer commands completed."
+    else
+        log_error "Expect script failed with exit code $?"
+        log_error "Check the log file for details: ${LOG_FILE}"
+        rm -f "${transfer_script}"
+        exit 1
+    fi
 
     # Clean up
     rm -f "${transfer_script}"
 
-    log_success "GPG subkey transfer commands completed."
+    # Restart GPG daemons to clear any stale state
+    log_info "Restarting GPG daemons after key transfer..."
+    restart_gpg_daemons
 
     # Note: Verification is done separately by verify_keys_on_yubikey function
 }
@@ -556,8 +601,30 @@ EXPECT_EOF
 verify_keys_on_yubikey() {
     log_step "Verifying keys are loaded on YubiKey..."
 
+    # Get card status with retry logic in case of daemon issues
     local card_status
-    card_status=$(gpg --card-status 2>&1)
+    local retry_count=0
+    local max_retries=3
+
+    while [[ ${retry_count} -lt ${max_retries} ]]; do
+        card_status=$(gpg --card-status 2>&1)
+
+        # Check if we got a broken pipe or similar error
+        if echo "${card_status}" | grep -qi "broken pipe\|no card\|card error"; then
+            log_warning "GPG daemon issue detected, restarting daemons (attempt $((retry_count + 1))/${max_retries})..."
+            restart_gpg_daemons
+            retry_count=$((retry_count + 1))
+            sleep 2
+        else
+            # Success - got valid card status
+            break
+        fi
+    done
+
+    if [[ ${retry_count} -ge ${max_retries} ]]; then
+        log_error "Failed to communicate with YubiKey after ${max_retries} attempts"
+        return 1
+    fi
 
     local sig_key_status
     local enc_key_status
@@ -975,9 +1042,31 @@ verify_yubikey() {
     log_info "YubiKey status:"
     ykman info 2>&1 | tee -a "${LOG_FILE}"
 
-    # Check GPG card status
+    # Check GPG card status with retry logic
     log_info "GPG card status:"
-    gpg --card-status 2>&1 | tee -a "${LOG_FILE}"
+    local retry_count=0
+    local max_retries=2
+    local card_check_success=false
+
+    while [[ ${retry_count} -lt ${max_retries} ]]; do
+        local card_output
+        card_output=$(gpg --card-status 2>&1)
+
+        if echo "${card_output}" | grep -qi "broken pipe\|no card\|card error"; then
+            log_warning "GPG daemon issue detected, restarting daemons..."
+            restart_gpg_daemons
+            retry_count=$((retry_count + 1))
+            sleep 2
+        else
+            echo "${card_output}" | tee -a "${LOG_FILE}"
+            card_check_success=true
+            break
+        fi
+    done
+
+    if [[ "${card_check_success}" != true ]]; then
+        log_warning "Unable to verify GPG card status, but keys may still be functional"
+    fi
 
     # Test GPG signing
     log_info "Testing GPG signing..."

@@ -33,11 +33,13 @@ This script provides comprehensive automation for configuring YubiKey 5 NFC devi
 - **Automated YubiKey Initialization**: Sets PINs and configures touch policies
 - **Triple-Mode Operation**: Supports generating new keys, loading existing keys, and backing up YubiKey
 - **GPG Key Management**: Creates a standard GPG key hierarchy (master key with signing, encryption, and authentication subkeys) and transfers the subkeys to the YubiKey using reliable expect-based automation
-- **Comprehensive Verification**: Validates all keys are properly transferred to YubiKey before creating backups, with detailed error diagnostics
+- **Robust Key Transfer**: Uses expect automation with ANSI escape sequence handling and automatic GPG daemon restart to ensure reliable key transfers
+- **Comprehensive Verification**: Validates all keys are properly transferred to YubiKey before creating backups, with detailed error diagnostics and automatic retry logic
 - **SSH Configuration**: Generates FIDO2 resident SSH keys and configures the GPG agent for SSH authentication
 - **Git Integration**: Automatically configures Git for commit and tag signing with the GPG key
 - **Secure Backups**: Creates timestamped backups only after successful key verification, with clear documentation of what's backed up
 - **Security Focused**: Implements best practices including touch-to-confirm policies, PIN protection, mandatory verification, and detailed audit logging
+- **Reliable Operation**: Includes automatic daemon restart and retry logic to handle transient GPG agent and scdaemon issues
 
 ### Target Users
 
@@ -404,15 +406,18 @@ The script uses `expect` (a tool for automating interactive programs) to handle 
 #### How It Works
 
 1. **Expect Script Generation**: Creates a temporary expect script that automates the interactive GPG session
-2. **Interactive Automation**: The script:
-   - Spawns `gpg --expert --edit-key <KEY_ID>`
+2. **Terminal Configuration**: Sets `TERM=dumb` to disable ANSI escape sequences (bracketed paste mode) that can interfere with pattern matching
+3. **Interactive Automation**: The script:
+   - Spawns `gpg --expert --edit-key <KEY_ID>` with dumb terminal
+   - Uses flexible regex patterns (`expect -re "gpg>.*"`) to handle any remaining escape sequences
    - Selects each subkey (`key 1`, `key 2`, `key 3`)
    - Executes `keytocard` command for each
    - Selects the appropriate slot (1=signature, 2=encryption, 3=authentication)
-   - Provides Admin PIN when prompted
+   - Provides Admin PIN when prompted using flexible pattern matching
    - Handles YubiKey touch confirmations
-   - Saves and exits
-3. **Cleanup**: Removes the temporary expect script after completion
+   - Saves and exits with proper EOF handling
+4. **Daemon Restart**: Automatically restarts GPG daemons after key transfer to clear any stale state
+5. **Cleanup**: Removes the temporary expect script after completion
 
 #### Why Expect?
 
@@ -420,8 +425,17 @@ Previous approaches using custom pinentry scripts failed because:
 - GPG cannot access `/dev/tty` in non-interactive environments
 - Heredoc and pipe combinations don't handle GPG's interactive prompts reliably
 - GPG agent's pinentry protocol requires proper TTY allocation
+- ANSI escape sequences (bracketed paste mode) interfere with simple pattern matching
 
-The expect-based solution provides a real pseudo-TTY and properly handles all interactive prompts.
+The expect-based solution provides a real pseudo-TTY and properly handles all interactive prompts, with robust pattern matching and automatic error recovery.
+
+#### Recent Improvements
+
+- **ANSI Escape Handling**: Uses `TERM=dumb` and regex patterns to handle terminal escape sequences
+- **Flexible Pattern Matching**: Updated from exact string matches to regex patterns for better reliability
+- **Automatic Recovery**: Restarts GPG daemons after key transfer to prevent "broken pipe" errors
+- **Extended Timeout**: Increased timeout to 120 seconds for slower systems or large keys
+- **Better Error Messages**: Provides clear diagnostic output when operations fail
 
 ### Comprehensive Verification
 
@@ -749,6 +763,25 @@ The script warns and requires confirmation before:
 3. Verify socket location: `gpgconf --list-dirs agent-socket`
 4. Check `~/.gnupg/gpg-agent.conf` for correct configuration
 
+#### Issue: scdaemon "Broken Pipe" Error
+
+**Symptom**: After key transfer operations, GPG card status shows "Broken pipe" or "OpenPGP card not available" errors.
+
+**What This Means**: The scdaemon (Smart Card Daemon) has crashed or become unresponsive after intensive card operations.
+
+**Automatic Handling**: The script now automatically handles this by:
+- Restarting GPG daemons immediately after key transfer
+- Implementing retry logic in verification steps (up to 3 attempts)
+- Providing automatic recovery in the final verification stage
+
+**Manual Solution** (if needed):
+1. Kill all GPG-related daemons: `gpgconf --kill gpg-agent && gpgconf --kill scdaemon`
+2. Wait a moment: `sleep 2`
+3. Let daemons auto-restart: `gpgconf --launch gpg-agent`
+4. Try the operation again: `gpg --card-status`
+
+**Prevention**: The script's automatic restart logic should prevent this error in normal operation.
+
 #### Issue: SSH Authentication Failures
 
 **Symptom**: SSH authentication using the YubiKey fails.
@@ -1041,5 +1074,24 @@ This script was developed based on the comprehensive development plan outlined i
 ---
 
 **Author**: Manus AI
-**Version**: 1.0.0
-**Last Updated**: October 24, 2025
+**Version**: 1.1.0
+**Last Updated**: October 26, 2025
+
+## Changelog
+
+### Version 1.1.0 (2025-10-26)
+
+- **Fixed**: Resolved ANSI escape sequence handling in expect script that caused script to hang
+- **Fixed**: Corrected expect script logic for final key transfer to prevent timeout
+- **Added**: Automatic GPG daemon restart after key transfer to prevent "broken pipe" errors
+- **Added**: Retry logic in key verification with up to 3 automatic retry attempts
+- **Added**: Retry logic in final verification stage for better reliability
+- **Improved**: Extended timeout from 60 to 120 seconds for key transfer operations
+- **Improved**: Enhanced error messages and diagnostic output
+
+### Version 1.0.0 (2025-10-24)
+
+- Initial release with comprehensive YubiKey setup automation
+- Support for generate, load, and backup operational modes
+- Expect-based key transfer automation
+- Comprehensive verification before backup creation
