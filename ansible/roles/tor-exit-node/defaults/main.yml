@@ -1,0 +1,187 @@
+---
+# Tor Exit Node Default Variables
+# Override these in group_vars or host_vars as needed
+
+# ========================================
+# Tor Configuration
+# ========================================
+
+# Relay contact information (REQUIRED - set in vault or host_vars)
+tor_contact_info: "{{ tor_contact_info_vault | default('') }}"
+tor_relay_nickname: "{{ ansible_hostname }}ExitNode"
+
+# Bandwidth settings (in KB/s)
+# Set slightly below actual capacity for reliability
+tor_bandwidth_rate: 10240      # 10 MB/s sustained
+tor_bandwidth_burst: 20480     # 20 MB/s burst
+tor_relay_bandwidth_rate: 10240
+tor_relay_bandwidth_burst: 20480
+
+# Accounting (optional - to limit monthly bandwidth)
+tor_accounting_enabled: false
+tor_accounting_start: "month 1 00:00"
+tor_accounting_max: "100 GB"
+
+# Exit node settings
+tor_exit_relay: true
+tor_exit_policy_enabled: true
+
+# Reduced exit policy (recommended to minimize abuse)
+# This allows common services while blocking high-risk ports
+tor_reduced_exit_policy: true
+
+# Custom exit policy rules (if not using reduced policy)
+tor_custom_exit_policy:
+  - "accept *:80"           # HTTP
+  - "accept *:443"          # HTTPS
+  - "accept *:993"          # IMAPS
+  - "accept *:995"          # POP3S
+  - "reject *:*"
+
+# Port configuration
+tor_or_port: 9001             # ORPort for relay connections
+tor_dir_port: 9030            # DirPort for directory information
+tor_control_port: 9051        # ControlPort (localhost only)
+
+# IPv6 support
+tor_ipv6_enabled: true
+tor_ipv6_orport: "[::]:9001"
+
+# ========================================
+# DNS Configuration
+# ========================================
+
+# Local DNS resolver (Unbound recommended by Tor Project)
+tor_install_unbound: true
+tor_dns_resolvers:
+  - "127.0.0.1"
+
+# Unbound configuration
+unbound_enable_dnssec: true
+unbound_qname_minimization: true
+unbound_cache_size: 256m
+
+# ========================================
+# Security & Hardening
+# ========================================
+
+# System hardening
+tor_enable_system_hardening: true
+tor_enable_apparmor: true
+tor_enable_fail2ban: true
+
+# SSH hardening
+tor_harden_ssh: true
+tor_ssh_port: 22
+tor_ssh_allow_users: []       # Set in vault or host_vars
+
+# Automatic security updates
+tor_enable_automatic_updates: true
+tor_auto_reboot_time: "02:00"
+
+# ========================================
+# Firewall Configuration
+# ========================================
+
+tor_firewall_enabled: true
+tor_firewall_type: "ufw"      # Options: ufw, firewalld, iptables
+
+# Allowed SSH sources (empty = allow from anywhere)
+tor_ssh_allowed_sources: []
+
+# Additional allowed ports
+tor_additional_allowed_ports: []
+
+# ========================================
+# Monitoring & Logging
+# ========================================
+
+# Enable monitoring stack
+tor_enable_monitoring: true
+tor_enable_prometheus_exporter: true
+tor_prometheus_exporter_port: 9130
+
+# Logging configuration
+tor_log_level: "notice"       # Options: debug, info, notice, warn, err
+tor_log_destination: "syslog"
+tor_enable_log_rotation: true
+tor_log_retention_days: 30
+
+# Monitoring alerts
+tor_enable_alerts: true
+tor_alert_email: "{{ tor_alert_email_vault | default('') }}"
+
+# ========================================
+# Backup & Disaster Recovery
+# ========================================
+
+tor_enable_backups: true
+tor_backup_dir: "/var/backups/tor"
+tor_backup_retention_days: 7
+tor_backup_schedule: "0 3 * * *"  # 3 AM daily
+
+# ========================================
+# Exit Notice Configuration
+# ========================================
+
+tor_exit_notice_enabled: true
+tor_exit_notice_domain: "{{ tor_exit_notice_domain_vault | default(ansible_default_ipv4.address) }}"
+tor_exit_notice_operator: "{{ tor_operator_name_vault | default('Tor Exit Node Operator') }}"
+tor_exit_notice_email: "{{ tor_operator_email_vault | default('') }}"
+
+# ========================================
+# Package Versions & Repositories
+# ========================================
+
+# Use official Tor Project repository for latest stable version
+tor_use_official_repo: true
+tor_repo_url: "https://deb.torproject.org/torproject.org"
+tor_repo_distribution: "{{ ansible_distribution_release }}"
+
+# ========================================
+# Performance Tuning
+# ========================================
+
+# Kernel tuning for high-performance relay
+tor_enable_kernel_tuning: true
+
+# System limits
+tor_nofile_limit: 65536
+tor_nproc_limit: 32768
+
+# ========================================
+# Legal & Compliance
+# ========================================
+
+# WHOIS and reverse DNS information
+tor_configure_reverse_dns: false  # Manual configuration recommended
+tor_reverse_dns_hostname: "tor-exit.{{ tor_exit_notice_domain }}"
+
+# Abuse contact
+tor_abuse_email: "{{ tor_abuse_email_vault | default(tor_contact_info) }}"
+
+# ========================================
+# Advanced Configuration
+# ========================================
+
+# Circuit and connection limits
+tor_max_connections: 10000
+tor_max_circuits: 32768
+
+# Exit node specific settings
+tor_exit_notice_file: "/etc/tor/exit-notice.html"
+
+# Tor service user
+tor_user: "debian-tor"
+tor_group: "debian-tor"
+
+# Configuration directory
+tor_config_dir: "/etc/tor"
+tor_data_dir: "/var/lib/tor"
+
+# ========================================
+# Testing & Development
+# ========================================
+
+# Set to true for testing (not recommended for production)
+tor_test_mode: false

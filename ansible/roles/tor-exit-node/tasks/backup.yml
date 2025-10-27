@@ -1,0 +1,233 @@
+---
+# Backup and Disaster Recovery Configuration
+
+- name: Ensure backup directory exists
+  ansible.builtin.file:
+    path: "{{ tor_backup_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  become: true
+
+- name: Create backup script
+  ansible.builtin.copy:
+    content: |
+      #!/bin/bash
+      # Tor Exit Node Backup Script
+
+      set -euo pipefail
+
+      BACKUP_DIR="{{ tor_backup_dir }}"
+      TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+      BACKUP_NAME="tor-backup-${TIMESTAMP}"
+      BACKUP_PATH="${BACKUP_DIR}/${BACKUP_NAME}"
+
+      # Create backup directory
+      mkdir -p "${BACKUP_PATH}"
+
+      echo "Starting Tor backup at $(date)"
+
+      # Backup Tor configuration
+      echo "Backing up Tor configuration..."
+      cp -a {{ tor_config_dir }}/torrc "${BACKUP_PATH}/torrc"
+
+      # Backup Tor keys (critical for maintaining relay identity)
+      echo "Backing up Tor keys..."
+      if [ -d {{ tor_data_dir }}/keys ]; then
+          cp -a {{ tor_data_dir }}/keys "${BACKUP_PATH}/keys"
+      fi
+
+      # Backup fingerprint
+      if [ -f {{ tor_data_dir }}/fingerprint ]; then
+          cp {{ tor_data_dir }}/fingerprint "${BACKUP_PATH}/fingerprint"
+      fi
+
+      # Backup state file
+      if [ -f {{ tor_data_dir }}/state ]; then
+          cp {{ tor_data_dir }}/state "${BACKUP_PATH}/state"
+      fi
+
+      # Backup system configuration files
+      echo "Backing up system configuration..."
+      mkdir -p "${BACKUP_PATH}/system"
+      cp /etc/resolv.conf "${BACKUP_PATH}/system/" || true
+      cp /etc/sysctl.conf "${BACKUP_PATH}/system/" || true
+      cp -a /etc/ssh/sshd_config "${BACKUP_PATH}/system/" || true
+
+      # Backup firewall rules
+      if command -v ufw > /dev/null; then
+          ufw status verbose > "${BACKUP_PATH}/system/ufw-rules.txt" || true
+      fi
+
+      # Backup monitoring configuration
+      if [ -f /usr/local/bin/tor-prometheus-exporter.py ]; then
+          cp /usr/local/bin/tor-prometheus-exporter.py "${BACKUP_PATH}/" || true
+      fi
+
+      # Create archive
+      echo "Creating backup archive..."
+      cd "${BACKUP_DIR}"
+      tar -czf "${BACKUP_NAME}.tar.gz" "${BACKUP_NAME}"
+      rm -rf "${BACKUP_PATH}"
+
+      # Set proper permissions
+      chmod 600 "${BACKUP_NAME}.tar.gz"
+
+      # Clean up old backups (keep last {{ tor_backup_retention_days }} days)
+      echo "Cleaning up old backups..."
+      find "${BACKUP_DIR}" -name "tor-backup-*.tar.gz" -type f -mtime +{{ tor_backup_retention_days }} -delete
+
+      echo "Backup completed: ${BACKUP_NAME}.tar.gz"
+      echo "Backup size: $(du -h ${BACKUP_NAME}.tar.gz | cut -f1)"
+      echo "Available backups:"
+      ls -lh "${BACKUP_DIR}"/tor-backup-*.tar.gz | tail -5
+
+      echo "Backup completed at $(date)"
+    dest: /usr/local/bin/tor-backup
+    owner: root
+    group: root
+    mode: '0750'
+  become: true
+
+- name: Create restore script
+  ansible.builtin.copy:
+    content: |
+      #!/bin/bash
+      # Tor Exit Node Restore Script
+
+      set -euo pipefail
+
+      BACKUP_DIR="{{ tor_backup_dir }}"
+
+      if [ $# -eq 0 ]; then
+          echo "Usage: $0 <backup-file>"
+          echo ""
+          echo "Available backups:"
+          ls -1 "${BACKUP_DIR}"/tor-backup-*.tar.gz 2>/dev/null || echo "No backups found"
+          exit 1
+      fi
+
+      BACKUP_FILE="$1"
+
+      if [ ! -f "${BACKUP_FILE}" ]; then
+          # Try to find in backup directory
+          if [ -f "${BACKUP_DIR}/${BACKUP_FILE}" ]; then
+              BACKUP_FILE="${BACKUP_DIR}/${BACKUP_FILE}"
+          else
+              echo "Error: Backup file not found: ${BACKUP_FILE}"
+              exit 1
+          fi
+      fi
+
+      echo "========================================="
+      echo "Tor Exit Node Restore"
+      echo "========================================="
+      echo "Backup file: ${BACKUP_FILE}"
+      echo ""
+      echo "WARNING: This will overwrite current configuration!"
+      echo "Press Ctrl+C within 10 seconds to cancel..."
+      sleep 10
+
+      # Stop Tor service
+      echo "Stopping Tor service..."
+      systemctl stop tor
+
+      # Extract backup
+      TEMP_DIR=$(mktemp -d)
+      echo "Extracting backup..."
+      tar -xzf "${BACKUP_FILE}" -C "${TEMP_DIR}"
+      BACKUP_NAME=$(ls "${TEMP_DIR}")
+
+      # Restore configuration
+      echo "Restoring configuration..."
+      cp "${TEMP_DIR}/${BACKUP_NAME}/torrc" {{ tor_config_dir }}/torrc
+
+      # Restore keys
+      if [ -d "${TEMP_DIR}/${BACKUP_NAME}/keys" ]; then
+          echo "Restoring keys..."
+          rm -rf {{ tor_data_dir }}/keys
+          cp -a "${TEMP_DIR}/${BACKUP_NAME}/keys" {{ tor_data_dir }}/
+          chown -R {{ tor_user }}:{{ tor_group }} {{ tor_data_dir }}/keys
+          chmod 700 {{ tor_data_dir }}/keys
+      fi
+
+      # Restore fingerprint
+      if [ -f "${TEMP_DIR}/${BACKUP_NAME}/fingerprint" ]; then
+          cp "${TEMP_DIR}/${BACKUP_NAME}/fingerprint" {{ tor_data_dir }}/fingerprint
+          chown {{ tor_user }}:{{ tor_group }} {{ tor_data_dir }}/fingerprint
+      fi
+
+      # Restore state
+      if [ -f "${TEMP_DIR}/${BACKUP_NAME}/state" ]; then
+          cp "${TEMP_DIR}/${BACKUP_NAME}/state" {{ tor_data_dir }}/state
+          chown {{ tor_user }}:{{ tor_group }} {{ tor_data_dir }}/state
+      fi
+
+      # Clean up
+      rm -rf "${TEMP_DIR}"
+
+      # Verify configuration
+      echo "Verifying configuration..."
+      if tor --verify-config -f {{ tor_config_dir }}/torrc; then
+          echo "Configuration verified successfully"
+      else
+          echo "Error: Configuration verification failed!"
+          exit 1
+      fi
+
+      # Start Tor service
+      echo "Starting Tor service..."
+      systemctl start tor
+
+      # Check status
+      sleep 5
+      if systemctl is-active --quiet tor; then
+          echo ""
+          echo "========================================="
+          echo "Restore completed successfully!"
+          echo "Tor service is running"
+          echo "========================================="
+      else
+          echo ""
+          echo "========================================="
+          echo "Warning: Tor service failed to start"
+          echo "Check logs: journalctl -u tor -n 50"
+          echo "========================================="
+          exit 1
+      fi
+    dest: /usr/local/bin/tor-restore
+    owner: root
+    group: root
+    mode: '0750'
+  become: true
+
+- name: Create backup cron job
+  ansible.builtin.cron:
+    name: "Tor exit node backup"
+    minute: "{{ tor_backup_schedule.split()[0] }}"
+    hour: "{{ tor_backup_schedule.split()[1] }}"
+    day: "{{ tor_backup_schedule.split()[2] }}"
+    month: "{{ tor_backup_schedule.split()[3] }}"
+    weekday: "{{ tor_backup_schedule.split()[4] }}"
+    job: "/usr/local/bin/tor-backup >> /var/log/tor/backup.log 2>&1"
+    user: root
+  become: true
+
+- name: Create initial backup
+  ansible.builtin.command: /usr/local/bin/tor-backup
+  become: true
+  changed_when: false
+  failed_when: false
+  when: ansible_check_mode is false
+
+- name: Display backup information
+  ansible.builtin.debug:
+    msg:
+      - "Backup configuration complete"
+      - "Backup directory: {{ tor_backup_dir }}"
+      - "Backup schedule: {{ tor_backup_schedule }}"
+      - "Retention: {{ tor_backup_retention_days }} days"
+      - ""
+      - "Manual backup: sudo /usr/local/bin/tor-backup"
+      - "Restore backup: sudo /usr/local/bin/tor-restore <backup-file>"

@@ -1,0 +1,203 @@
+---
+# Tor Exit Node Configuration
+
+- name: Backup original torrc if it exists
+  ansible.builtin.copy:
+    src: "{{ tor_config_dir }}/torrc"
+    dest: "{{ tor_config_dir }}/torrc.backup.{{ ansible_date_time.epoch }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  when: ansible_check_mode is false
+  failed_when: false
+
+- name: Generate Tor configuration file
+  ansible.builtin.template:
+    src: torrc.j2
+    dest: "{{ tor_config_dir }}/torrc"
+    owner: root
+    group: root
+    mode: '0644'
+    validate: 'tor --verify-config -f %s'
+  become: true
+  notify: Reload tor
+
+- name: Generate exit notice HTML page
+  ansible.builtin.template:
+    src: exit-notice.html.j2
+    dest: "{{ tor_exit_notice_file }}"
+    owner: "{{ tor_user }}"
+    group: "{{ tor_group }}"
+    mode: '0644'
+  become: true
+  when: tor_exit_notice_enabled | bool
+
+- name: Create Tor systemd override directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/tor.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Configure Tor systemd service limits
+  ansible.builtin.copy:
+    content: |
+      [Service]
+      # Increase file descriptor limits for high-bandwidth relay
+      LimitNOFILE={{ tor_nofile_limit }}
+
+      # Restart on failure
+      Restart=on-failure
+      RestartSec=10
+
+      # Security hardening
+      NoNewPrivileges=true
+      PrivateTmp=true
+      ProtectSystem=full
+      ProtectHome=true
+      ReadWritePaths={{ tor_data_dir }}
+      ReadWritePaths=/var/log/tor
+    dest: /etc/systemd/system/tor.service.d/override.conf
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  notify:
+    - Reload systemd
+    - Restart tor
+
+- name: Create Tor control authentication cookie directory
+  ansible.builtin.file:
+    path: "{{ tor_data_dir }}/control_auth_cookie"
+    state: directory
+    owner: "{{ tor_user }}"
+    group: "{{ tor_group }}"
+    mode: '0700'
+  become: true
+
+- name: Verify Tor configuration
+  ansible.builtin.command: tor --verify-config -f {{ tor_config_dir }}/torrc
+  become: true
+  become_user: root
+  changed_when: false
+  register: tor_config_verify
+
+- name: Display Tor configuration verification result
+  ansible.builtin.debug:
+    msg: "{{ tor_config_verify.stdout_lines }}"
+
+- name: Ensure Tor service is enabled
+  ansible.builtin.systemd:
+    name: tor
+    enabled: true
+    daemon_reload: true
+  become: true
+
+- name: Start Tor service
+  ansible.builtin.systemd:
+    name: tor
+    state: started
+  become: true
+
+- name: Wait for Tor to initialize
+  ansible.builtin.pause:
+    seconds: 10
+
+- name: Check Tor service status
+  ansible.builtin.systemd:
+    name: tor
+  become: true
+  register: tor_service_status
+
+- name: Display Tor service status
+  ansible.builtin.debug:
+    msg:
+      - "Tor service status: {{ tor_service_status.status.ActiveState }}"
+      - "Tor is {{ 'running' if tor_service_status.status.ActiveState == 'active' else 'not running' }}"
+
+- name: Get Tor relay fingerprint
+  ansible.builtin.command: cat {{ tor_data_dir }}/fingerprint
+  become: true
+  register: tor_fingerprint
+  changed_when: false
+  failed_when: false
+
+- name: Display relay information
+  ansible.builtin.debug:
+    msg:
+      - "==============================================="
+      - "Tor Exit Node Configuration Complete!"
+      - "==============================================="
+      - "Relay Nickname: {{ tor_relay_nickname }}"
+      - "Fingerprint: {{ tor_fingerprint.stdout if tor_fingerprint.rc == 0 else 'Generating...' }}"
+      - "ORPort: {{ tor_or_port }}"
+      - "DirPort: {{ tor_dir_port }}"
+      - "Exit Policy: {{ 'Reduced Exit Policy' if tor_reduced_exit_policy else 'Custom Exit Policy' }}"
+      - "==============================================="
+      - "Note: It may take several hours for your relay"
+      - "to appear in the Tor network consensus."
+      - "Check status at: https://metrics.torproject.org/"
+      - "==============================================="
+  when: tor_fingerprint.rc == 0 or tor_fingerprint.rc == 1
+
+- name: Create helpful management scripts
+  ansible.builtin.copy:
+    content: |
+      #!/bin/bash
+      # Tor Exit Node Management Script
+
+      case "$1" in
+        status)
+          echo "=== Tor Service Status ==="
+          systemctl status tor
+          echo ""
+          echo "=== Tor Log (last 20 lines) ==="
+          journalctl -u tor -n 20 --no-pager
+          ;;
+        logs)
+          journalctl -u tor -f
+          ;;
+        fingerprint)
+          if [ -f {{ tor_data_dir }}/fingerprint ]; then
+            cat {{ tor_data_dir }}/fingerprint
+          else
+            echo "Fingerprint not yet generated. Tor may still be starting up."
+          fi
+          ;;
+        reload)
+          systemctl reload tor
+          echo "Tor configuration reloaded"
+          ;;
+        restart)
+          systemctl restart tor
+          echo "Tor service restarted"
+          ;;
+        verify)
+          tor --verify-config -f {{ tor_config_dir }}/torrc
+          ;;
+        *)
+          echo "Usage: $0 {status|logs|fingerprint|reload|restart|verify}"
+          exit 1
+          ;;
+      esac
+    dest: /usr/local/bin/tor-manage
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Display management script info
+  ansible.builtin.debug:
+    msg:
+      - "Management script installed: /usr/local/bin/tor-manage"
+      - "Usage:"
+      - "  tor-manage status      - Show Tor status and recent logs"
+      - "  tor-manage logs        - Follow Tor logs in real-time"
+      - "  tor-manage fingerprint - Display relay fingerprint"
+      - "  tor-manage reload      - Reload Tor configuration"
+      - "  tor-manage restart     - Restart Tor service"
+      - "  tor-manage verify      - Verify Tor configuration"

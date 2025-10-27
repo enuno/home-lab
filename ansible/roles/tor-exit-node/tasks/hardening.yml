@@ -1,0 +1,302 @@
+---
+# System Security Hardening Tasks
+
+# ========================================
+# SSH Hardening
+# ========================================
+
+- name: Harden SSH configuration
+  when: tor_harden_ssh | bool
+  block:
+    - name: Configure SSH daemon
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+        validate: '/usr/sbin/sshd -t -f %s'
+      become: true
+      loop:
+        - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin prohibit-password' }
+        - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+        - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
+        - { regexp: '^#?ChallengeResponseAuthentication', line: 'ChallengeResponseAuthentication no' }
+        - { regexp: '^#?X11Forwarding', line: 'X11Forwarding no' }
+        - { regexp: '^#?MaxAuthTries', line: 'MaxAuthTries 3' }
+        - { regexp: '^#?MaxSessions', line: 'MaxSessions 2' }
+        - { regexp: '^#?Protocol', line: 'Protocol 2' }
+        - { regexp: '^#?ClientAliveInterval', line: 'ClientAliveInterval 300' }
+        - { regexp: '^#?ClientAliveCountMax', line: 'ClientAliveCountMax 2' }
+        - { regexp: '^#?PermitEmptyPasswords', line: 'PermitEmptyPasswords no' }
+      notify: Restart sshd
+
+    - name: Set SSH port
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?Port'
+        line: "Port {{ tor_ssh_port }}"
+        state: present
+        validate: '/usr/sbin/sshd -t -f %s'
+      become: true
+      notify: Restart sshd
+      when: tor_ssh_port != 22
+
+# ========================================
+# Kernel Hardening
+# ========================================
+
+- name: Configure kernel security parameters
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    sysctl_set: true
+    reload: true
+  become: true
+  loop:
+    # Network security
+    - { name: 'net.ipv4.conf.all.rp_filter', value: '1' }
+    - { name: 'net.ipv4.conf.default.rp_filter', value: '1' }
+    - { name: 'net.ipv4.icmp_echo_ignore_broadcasts', value: '1' }
+    - { name: 'net.ipv4.conf.all.accept_source_route', value: '0' }
+    - { name: 'net.ipv4.conf.default.accept_source_route', value: '0' }
+    - { name: 'net.ipv4.conf.all.accept_redirects', value: '0' }
+    - { name: 'net.ipv4.conf.default.accept_redirects', value: '0' }
+    - { name: 'net.ipv4.conf.all.secure_redirects', value: '0' }
+    - { name: 'net.ipv4.conf.default.secure_redirects', value: '0' }
+    - { name: 'net.ipv4.conf.all.send_redirects', value: '0' }
+    - { name: 'net.ipv4.conf.default.send_redirects', value: '0' }
+    - { name: 'net.ipv4.icmp_ignore_bogus_error_responses', value: '1' }
+    - { name: 'net.ipv4.tcp_syncookies', value: '1' }
+    - { name: 'net.ipv4.conf.all.log_martians', value: '1' }
+    - { name: 'net.ipv4.conf.default.log_martians', value: '1' }
+    # IPv6 security
+    - { name: 'net.ipv6.conf.all.accept_source_route', value: '0' }
+    - { name: 'net.ipv6.conf.default.accept_source_route', value: '0' }
+    - { name: 'net.ipv6.conf.all.accept_redirects', value: '0' }
+    - { name: 'net.ipv6.conf.default.accept_redirects', value: '0' }
+    # Kernel hardening
+    - { name: 'kernel.randomize_va_space', value: '2' }
+    - { name: 'kernel.kptr_restrict', value: '2' }
+    - { name: 'kernel.dmesg_restrict', value: '1' }
+    - { name: 'kernel.yama.ptrace_scope', value: '1' }
+    - { name: 'fs.suid_dumpable', value: '0' }
+
+- name: Configure kernel performance parameters for Tor relay
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    sysctl_set: true
+    reload: true
+  become: true
+  when: tor_enable_kernel_tuning | bool
+  loop:
+    # Increase connection tracking table size
+    - { name: 'net.netfilter.nf_conntrack_max', value: '262144' }
+    # Increase network buffers
+    - { name: 'net.core.rmem_max', value: '134217728' }
+    - { name: 'net.core.wmem_max', value: '134217728' }
+    - { name: 'net.core.rmem_default', value: '67108864' }
+    - { name: 'net.core.wmem_default', value: '67108864' }
+    - { name: 'net.ipv4.tcp_rmem', value: '4096 87380 134217728' }
+    - { name: 'net.ipv4.tcp_wmem', value: '4096 65536 134217728' }
+    # Increase max connection backlog
+    - { name: 'net.core.somaxconn', value: '4096' }
+    - { name: 'net.ipv4.tcp_max_syn_backlog', value: '8192' }
+    # Enable TCP Fast Open
+    - { name: 'net.ipv4.tcp_fastopen', value: '3' }
+    # Increase file descriptor limits
+    - { name: 'fs.file-max', value: '2097152' }
+
+# ========================================
+# System Limits
+# ========================================
+
+- name: Configure system limits for Tor
+  ansible.builtin.pam_limits:
+    domain: "{{ item.domain }}"
+    limit_type: "{{ item.type }}"
+    limit_item: "{{ item.item }}"
+    value: "{{ item.value }}"
+  become: true
+  loop:
+    - { domain: '{{ tor_user }}', type: 'soft', item: 'nofile', value: '{{ tor_nofile_limit }}' }
+    - { domain: '{{ tor_user }}', type: 'hard', item: 'nofile', value: '{{ tor_nofile_limit }}' }
+    - { domain: '{{ tor_user }}', type: 'soft', item: 'nproc', value: '{{ tor_nproc_limit }}' }
+    - { domain: '{{ tor_user }}', type: 'hard', item: 'nproc', value: '{{ tor_nproc_limit }}' }
+    - { domain: '*', type: 'soft', item: 'nofile', value: '{{ tor_nofile_limit }}' }
+    - { domain: '*', type: 'hard', item: 'nofile', value: '{{ tor_nofile_limit }}' }
+
+# ========================================
+# Fail2Ban Configuration
+# ========================================
+
+- name: Configure Fail2Ban for SSH protection
+  when: tor_enable_fail2ban | bool
+  block:
+    - name: Ensure Fail2Ban is installed
+      ansible.builtin.apt:
+        name: fail2ban
+        state: present
+      become: true
+
+    - name: Create Fail2Ban local configuration
+      ansible.builtin.copy:
+        content: |
+          [DEFAULT]
+          bantime = 3600
+          findtime = 600
+          maxretry = 3
+          destemail = {{ tor_alert_email }}
+          sendername = Fail2Ban
+          action = %(action_mwl)s
+
+          [sshd]
+          enabled = true
+          port = {{ tor_ssh_port }}
+          filter = sshd
+          logpath = /var/log/auth.log
+          maxretry = 3
+          bantime = 7200
+        dest: /etc/fail2ban/jail.local
+        owner: root
+        group: root
+        mode: '0644'
+      become: true
+      notify: Restart fail2ban
+
+    - name: Start and enable Fail2Ban
+      ansible.builtin.systemd:
+        name: fail2ban
+        state: started
+        enabled: true
+      become: true
+
+# ========================================
+# AppArmor Configuration
+# ========================================
+
+- name: Configure AppArmor for Tor
+  when:
+    - tor_enable_apparmor | bool
+    - ansible_os_family == "Debian"
+  block:
+    - name: Install AppArmor packages
+      ansible.builtin.apt:
+        name:
+          - apparmor
+          - apparmor-utils
+          - apparmor-profiles
+          - apparmor-profiles-extra
+        state: present
+      become: true
+
+    - name: Ensure AppArmor is enabled
+      ansible.builtin.systemd:
+        name: apparmor
+        state: started
+        enabled: true
+      become: true
+
+    - name: Check if Tor AppArmor profile exists
+      ansible.builtin.stat:
+        path: /etc/apparmor.d/system_tor
+      register: tor_apparmor_profile
+
+    - name: Enable Tor AppArmor profile
+      ansible.builtin.command: aa-enforce /etc/apparmor.d/system_tor
+      become: true
+      when: tor_apparmor_profile.stat.exists
+      changed_when: false
+
+# ========================================
+# Audit Logging
+# ========================================
+
+- name: Install and configure auditd
+  block:
+    - name: Install auditd
+      ansible.builtin.apt:
+        name: auditd
+        state: present
+      become: true
+
+    - name: Configure audit rules for Tor
+      ansible.builtin.copy:
+        content: |
+          # Tor configuration changes
+          -w /etc/tor/torrc -p wa -k tor_config
+          -w /var/lib/tor/ -p wa -k tor_data
+
+          # System configuration changes
+          -w /etc/passwd -p wa -k passwd_changes
+          -w /etc/group -p wa -k group_changes
+          -w /etc/shadow -p wa -k shadow_changes
+          -w /etc/gshadow -p wa -k gshadow_changes
+
+          # Network configuration changes
+          -w /etc/network/ -p wa -k network_config
+          -w /etc/sysctl.conf -p wa -k sysctl_config
+
+          # SSH configuration
+          -w /etc/ssh/sshd_config -p wa -k sshd_config
+        dest: /etc/audit/rules.d/tor-exit-node.rules
+        owner: root
+        group: root
+        mode: '0640'
+      become: true
+      notify: Reload systemd
+
+    - name: Start and enable auditd
+      ansible.builtin.systemd:
+        name: auditd
+        state: started
+        enabled: true
+      become: true
+
+# ========================================
+# Disable Unnecessary Services
+# ========================================
+
+- name: Disable unnecessary services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  become: true
+  loop:
+    - bluetooth
+    - cups
+    - avahi-daemon
+  failed_when: false
+  ignore_errors: true
+
+# ========================================
+# Security Message of the Day
+# ========================================
+
+- name: Create security MOTD
+  ansible.builtin.copy:
+    content: |
+      ╔══════════════════════════════════════════════════════════╗
+      ║          TOR EXIT NODE - AUTHORIZED ACCESS ONLY          ║
+      ╚══════════════════════════════════════════════════════════╝
+
+      This system is a Tor exit node providing privacy-enhancing
+      infrastructure for the Tor network.
+
+      All connections are logged and monitored for security purposes.
+      Unauthorized access attempts will be reported to authorities.
+
+      Relay: {{ tor_relay_nickname }}
+      Contact: {{ tor_contact_info }}
+
+      Documentation: /etc/tor/README.exit-node
+      Logs: journalctl -u tor -f
+
+    dest: /etc/motd
+    owner: root
+    group: root
+    mode: '0644'
+  become: true

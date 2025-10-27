@@ -1,0 +1,23 @@
+# Tor Exit Node Inventory Example
+#
+# Copy this file to inventory/production/tor-exit-nodes
+# and customize for your infrastructure
+#
+# ansible-playbook -i inventory/production playbooks/deploy-tor-exit-node.yml
+
+[tor_exit_nodes]
+# Format: hostname ansible_host=IP_ADDRESS ansible_user=USERNAME
+tor-exit-1 ansible_host=203.0.113.10 ansible_user=ubuntu ansible_port=22
+tor-exit-2 ansible_host=203.0.113.11 ansible_user=ubuntu ansible_port=22
+
+[tor_exit_nodes:vars]
+# Global variables for all Tor exit nodes
+ansible_python_interpreter=/usr/bin/python3
+ansible_ssh_private_key_file=~/.ssh/id_rsa
+
+# Example: Override default SSH port for all exit nodes
+# tor_ssh_port=2222
+
+# Example: Set bandwidth limits for all exit nodes
+# tor_bandwidth_rate=20480
+# tor_bandwidth_burst=40960

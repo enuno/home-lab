@@ -1,0 +1,160 @@
+---
+# Tor Exit Node Deployment Playbook
+#
+# This playbook deploys a secure Tor exit node following best practices
+# from the Tor Project and community recommendations.
+#
+# Usage:
+#   ansible-playbook -i inventory/production playbooks/deploy-tor-exit-node.yml
+#
+# With vault password:
+#   ansible-playbook -i inventory/production playbooks/deploy-tor-exit-node.yml --ask-vault-pass
+#
+# Dry run (check mode):
+#   ansible-playbook -i inventory/production playbooks/deploy-tor-exit-node.yml --check
+#
+# With tags:
+#   ansible-playbook -i inventory/production playbooks/deploy-tor-exit-node.yml --tags "tor,config"
+
+- name: Deploy Tor Exit Node
+  hosts: tor_exit_nodes
+  become: true
+  gather_facts: true
+
+  vars_prompt:
+    - name: confirm_deployment
+      prompt: |
+
+        ════════════════════════════════════════════════════════════════
+        WARNING: TOR EXIT NODE DEPLOYMENT
+        ════════════════════════════════════════════════════════════════
+
+        You are about to deploy a Tor exit node. Please ensure:
+
+        1. You have INFORMED YOUR ISP about running a Tor exit node
+        2. You understand the LEGAL IMPLICATIONS in your jurisdiction
+        3. You are prepared to handle ABUSE COMPLAINTS
+        4. You have configured REVERSE DNS for your server
+        5. You have updated your WHOIS information
+        6. This is a DEDICATED SERVER (not mixed with personal services)
+
+        Running a Tor exit node may result in:
+        - Abuse complaints from law enforcement and copyright holders
+        - Possible legal issues if not properly configured
+        - High bandwidth usage
+        - Negative reputation for the IP address
+
+        For more information, visit:
+        https://community.torproject.org/relay/setup/exit/
+
+        ════════════════════════════════════════════════════════════════
+
+        Type 'yes' to proceed with deployment
+      private: false
+
+  pre_tasks:
+    - name: Verify deployment confirmation
+      ansible.builtin.assert:
+        that:
+          - confirm_deployment == 'yes'
+        fail_msg: "Deployment cancelled. Please type 'yes' to proceed."
+        success_msg: "Deployment confirmed. Proceeding..."
+
+    - name: Display deployment information
+      ansible.builtin.debug:
+        msg:
+          - "════════════════════════════════════════════════════════════════"
+          - "Tor Exit Node Deployment Starting"
+          - "════════════════════════════════════════════════════════════════"
+          - "Target Host: {{ inventory_hostname }}"
+          - "IP Address: {{ ansible_default_ipv4.address }}"
+          - "OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "Relay Nickname: {{ tor_relay_nickname | default('Not set - check variables') }}"
+          - "Contact Info: {{ tor_contact_info | default('Not set - REQUIRED!') }}"
+          - "════════════════════════════════════════════════════════════════"
+
+    - name: Wait for confirmation to proceed
+      ansible.builtin.pause:
+        prompt: "Press ENTER to continue or Ctrl+C to abort"
+      when: not ansible_check_mode
+
+  roles:
+    - role: tor-exit-node
+      tags:
+        - tor
+        - exit-node
+
+  post_tasks:
+    - name: Display deployment summary
+      ansible.builtin.debug:
+        msg:
+          - "════════════════════════════════════════════════════════════════"
+          - "Tor Exit Node Deployment Complete!"
+          - "════════════════════════════════════════════════════════════════"
+          - ""
+          - "CRITICAL NEXT STEPS:"
+          - ""
+          - "1. Configure reverse DNS (PTR record) to point to:"
+          - "   {{ tor_reverse_dns_hostname }}"
+          - ""
+          - "2. Update WHOIS information with:"
+          - "   - Indication this is a Tor exit node"
+          - "   - Contact: {{ tor_contact_info }}"
+          - "   - Abuse: {{ tor_abuse_email }}"
+          - ""
+          - "3. Inform your ISP about running a Tor exit node"
+          - ""
+          - "4. Monitor your relay status (appears in 3-4 hours):"
+          - "   https://metrics.torproject.org/rs.html#search/{{ tor_relay_nickname }}"
+          - ""
+          - "5. Read the post-deployment instructions:"
+          - "   /etc/tor/README.exit-node"
+          - ""
+          - "════════════════════════════════════════════════════════════════"
+          - "Management Commands:"
+          - "════════════════════════════════════════════════════════════════"
+          - "  tor-manage status       - Check Tor status"
+          - "  tor-manage logs         - View Tor logs"
+          - "  tor-manage fingerprint  - Show relay fingerprint"
+          - "  tor-health-check        - Run health check"
+          - "  tor-backup              - Create backup"
+          - "════════════════════════════════════════════════════════════════"
+
+    - name: Create deployment record
+      ansible.builtin.copy:
+        content: |
+          Tor Exit Node Deployment Record
+          ════════════════════════════════════════════════════════════════
+
+          Deployment Date: {{ ansible_date_time.iso8601 }}
+          Deployed By: {{ ansible_user_id }}
+          Target Host: {{ inventory_hostname }} ({{ ansible_default_ipv4.address }})
+
+          Configuration:
+          - Relay Nickname: {{ tor_relay_nickname }}
+          - Contact Info: {{ tor_contact_info }}
+          - ORPort: {{ tor_or_port }}
+          - DirPort: {{ tor_dir_port | default('Not configured') }}
+          - Exit Policy: {{ 'Reduced' if tor_reduced_exit_policy else 'Custom' }}
+          - Bandwidth Rate: {{ tor_bandwidth_rate }} KB/s
+
+          System Information:
+          - OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          - Kernel: {{ ansible_kernel }}
+          - CPU Cores: {{ ansible_processor_vcpus }}
+          - Memory: {{ ansible_memtotal_mb }} MB
+
+          Features Enabled:
+          - System Hardening: {{ tor_enable_system_hardening }}
+          - Firewall: {{ tor_firewall_enabled }} ({{ tor_firewall_type }})
+          - Monitoring: {{ tor_enable_monitoring }}
+          - Automatic Updates: {{ tor_enable_automatic_updates }}
+          - Backups: {{ tor_enable_backups }}
+          - DNS Resolver: {{ 'Unbound' if tor_install_unbound else 'System default' }}
+
+          ════════════════════════════════════════════════════════════════
+        dest: "/root/tor-deployment-{{ ansible_date_time.date }}.txt"
+        owner: root
+        group: root
+        mode: '0600'
+      become: true

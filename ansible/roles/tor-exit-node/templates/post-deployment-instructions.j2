@@ -1,0 +1,242 @@
+════════════════════════════════════════════════════════════════
+TOR EXIT NODE - POST-DEPLOYMENT INSTRUCTIONS
+════════════════════════════════════════════════════════════════
+
+Deployment Date: {{ ansible_date_time.iso8601 }}
+Relay Nickname: {{ tor_relay_nickname }}
+Contact Info: {{ tor_contact_info }}
+Server: {{ ansible_hostname }} ({{ ansible_default_ipv4.address }})
+
+════════════════════════════════════════════════════════════════
+CRITICAL NEXT STEPS
+════════════════════════════════════════════════════════════════
+
+1. CONFIGURE REVERSE DNS
+   ────────────────────────────────────────────────────────────
+   Set up reverse DNS (PTR record) for your IP address to point to:
+   {{ tor_reverse_dns_hostname }}
+
+   Contact your hosting provider or ISP to configure this.
+
+2. UPDATE WHOIS INFORMATION
+   ────────────────────────────────────────────────────────────
+   Update your WHOIS records to include:
+   - Clear indication that this is a Tor exit node
+   - Contact information: {{ tor_contact_info }}
+   - Abuse contact: {{ tor_abuse_email }}
+
+3. INFORM YOUR ISP
+   ────────────────────────────────────────────────────────────
+   IMPORTANT: Notify your ISP that you are running a Tor exit node.
+
+   Key points to communicate:
+   - You are operating a Tor exit node for privacy enhancement
+   - Traffic originates from other Tor users, not from you
+   - You may receive abuse complaints
+   - Provide them with educational resources:
+     * https://www.torproject.org/
+     * https://community.torproject.org/relay/community-resources/eff-tor-legal-faq/
+
+4. VERIFY RELAY STATUS
+   ────────────────────────────────────────────────────────────
+   Your relay will appear in the Tor network consensus within several hours.
+
+   Check your relay status at:
+   https://metrics.torproject.org/rs.html#search/{{ tor_relay_nickname }}
+
+   Your relay fingerprint (if available):
+   $(cat {{ tor_data_dir }}/fingerprint 2>/dev/null || echo "Generating... Check back in a few minutes.")
+
+════════════════════════════════════════════════════════════════
+SYSTEM MANAGEMENT
+════════════════════════════════════════════════════════════════
+
+Service Management:
+  sudo systemctl status tor         # Check service status
+  sudo systemctl restart tor        # Restart Tor service
+  sudo systemctl reload tor         # Reload configuration
+
+Tor Management Script:
+  sudo tor-manage status            # Show status and recent logs
+  sudo tor-manage logs              # Follow logs in real-time
+  sudo tor-manage fingerprint       # Display relay fingerprint
+  sudo tor-manage reload            # Reload configuration
+  sudo tor-manage restart           # Restart Tor service
+  sudo tor-manage verify            # Verify configuration
+
+View Logs:
+  sudo journalctl -u tor -f         # Follow Tor logs
+  sudo journalctl -u tor -n 100     # Last 100 log entries
+  sudo tail -f /var/log/tor/tor.log # Tor log file (if file logging enabled)
+
+Health Check:
+  sudo /usr/local/bin/tor-health-check
+
+════════════════════════════════════════════════════════════════
+BACKUP AND RESTORE
+════════════════════════════════════════════════════════════════
+
+Backup Management:
+  sudo /usr/local/bin/tor-backup                    # Manual backup
+  sudo /usr/local/bin/tor-restore <backup-file>     # Restore from backup
+
+Backup Location: {{ tor_backup_dir }}
+Backup Schedule: {{ tor_backup_schedule }}
+Retention: {{ tor_backup_retention_days }} days
+
+IMPORTANT: Backup your Tor keys regularly! They are critical for
+maintaining your relay's identity and reputation in the network.
+
+════════════════════════════════════════════════════════════════
+MONITORING
+════════════════════════════════════════════════════════════════
+
+{% if tor_enable_monitoring %}
+Prometheus Node Exporter: http://{{ ansible_default_ipv4.address }}:9100/metrics
+{% if tor_enable_prometheus_exporter %}
+Tor Metrics Exporter: http://{{ ansible_default_ipv4.address }}:{{ tor_prometheus_exporter_port }}/metrics
+{% endif %}
+{% else %}
+Monitoring is disabled. Enable in defaults/main.yml: tor_enable_monitoring: true
+{% endif %}
+
+System Monitoring:
+  htop                              # Interactive process viewer
+  iotop                             # I/O monitoring
+  nethogs                           # Network bandwidth per process
+  ss -tan | grep ESTAB | wc -l      # Current connections
+
+════════════════════════════════════════════════════════════════
+FIREWALL STATUS
+════════════════════════════════════════════════════════════════
+
+{% if tor_firewall_enabled %}
+Firewall: {{ tor_firewall_type | upper }}
+
+View firewall rules:
+{% if tor_firewall_type == 'ufw' %}
+  sudo ufw status verbose
+{% else %}
+  sudo firewall-cmd --list-all
+{% endif %}
+
+Allowed Ports:
+  - SSH: {{ tor_ssh_port }}
+  - Tor ORPort: {{ tor_or_port }}
+{% if tor_dir_port is defined and tor_dir_port | int > 0 %}
+  - Tor DirPort: {{ tor_dir_port }}
+{% endif %}
+{% if tor_enable_prometheus_exporter %}
+  - Prometheus Exporter: {{ tor_prometheus_exporter_port }}
+{% endif %}
+{% else %}
+Firewall is disabled. Enable in defaults/main.yml: tor_firewall_enabled: true
+{% endif %}
+
+════════════════════════════════════════════════════════════════
+SECURITY
+════════════════════════════════════════════════════════════════
+
+SSH Configuration:
+  - Port: {{ tor_ssh_port }}
+  - Root login: Disabled (key-based only)
+  - Password authentication: Disabled
+
+Fail2Ban Status:
+{% if tor_enable_fail2ban %}
+  sudo fail2ban-client status
+  sudo fail2ban-client status sshd
+{% else %}
+  Disabled
+{% endif %}
+
+AppArmor Status:
+{% if tor_enable_apparmor %}
+  sudo aa-status
+{% else %}
+  Disabled
+{% endif %}
+
+Security Updates:
+{% if tor_enable_automatic_updates %}
+  Automatic security updates: ENABLED
+  Reboot time: {{ tor_auto_reboot_time }}
+{% else %}
+  Manual updates required
+{% endif %}
+
+════════════════════════════════════════════════════════════════
+CONFIGURATION FILES
+════════════════════════════════════════════════════════════════
+
+Tor Configuration: {{ tor_config_dir }}/torrc
+Exit Notice: {{ tor_exit_notice_file }}
+Data Directory: {{ tor_data_dir }}
+Backup Directory: {{ tor_backup_dir }}
+{% if tor_install_unbound %}
+DNS Configuration: /etc/unbound/unbound.conf.d/tor-exit-node.conf
+{% endif %}
+
+════════════════════════════════════════════════════════════════
+TROUBLESHOOTING
+════════════════════════════════════════════════════════════════
+
+If Tor won't start:
+  1. Check configuration: sudo tor --verify-config -f {{ tor_config_dir }}/torrc
+  2. Check logs: sudo journalctl -u tor -n 50
+  3. Check file permissions: ls -la {{ tor_data_dir }}
+  4. Check disk space: df -h
+  5. Check memory: free -h
+
+If relay doesn't appear in metrics:
+  1. Wait at least 3-4 hours for initial consensus
+  2. Verify ORPort is accessible from outside: telnet YOUR_IP {{ tor_or_port }}
+  3. Check firewall allows incoming connections
+  4. Verify correct configuration in torrc
+
+Common Issues:
+  - "Address already in use" - Check if another process uses port {{ tor_or_port }}
+  - "Permission denied" - Check file ownership in {{ tor_data_dir }}
+  - DNS timeouts - Verify Unbound is running: sudo systemctl status unbound
+
+════════════════════════════════════════════════════════════════
+ABUSE HANDLING
+════════════════════════════════════════════════════════════════
+
+Abuse complaints are normal for exit nodes. When you receive one:
+
+1. Respond politely and professionally
+2. Use the template at: https://community.torproject.org/relay/community-resources/tor-abuse-templates/
+3. Explain that you operate a Tor exit node
+4. Direct them to the exit notice: http://{{ ansible_default_ipv4.address }}:{{ tor_dir_port | default('') }}
+5. Refer them to Tor Project resources
+
+Exit Notice URL:
+http://{{ ansible_default_ipv4.address }}{% if tor_dir_port is defined and tor_dir_port | int > 0 %}:{{ tor_dir_port }}{% endif %}
+
+════════════════════════════════════════════════════════════════
+USEFUL RESOURCES
+════════════════════════════════════════════════════════════════
+
+Tor Project:
+  - Main Site: https://www.torproject.org/
+  - Relay Guide: https://community.torproject.org/relay/
+  - Metrics: https://metrics.torproject.org/
+  - Support: https://support.torproject.org/
+
+Legal Resources:
+  - EFF Tor Legal FAQ: https://community.torproject.org/relay/community-resources/eff-tor-legal-faq/
+  - Abuse Templates: https://community.torproject.org/relay/community-resources/tor-abuse-templates/
+
+Community:
+  - Mailing List: tor-relays@lists.torproject.org
+  - IRC: #tor-relays on OFTC
+  - Telegram: https://t.me/TorRelays
+
+════════════════════════════════════════════════════════════════
+
+For questions or issues with this deployment, refer to:
+  - Ansible playbook: ansible/roles/tor-exit-node/
+  - Project documentation: README.md
+
+════════════════════════════════════════════════════════════════

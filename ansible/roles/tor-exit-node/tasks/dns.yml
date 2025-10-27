@@ -1,0 +1,128 @@
+---
+# DNS Configuration (Unbound) - Recommended by Tor Project
+
+- name: Install Unbound DNS resolver
+  ansible.builtin.apt:
+    name:
+      - unbound
+      - unbound-host
+      - dns-root-data
+    state: present
+  become: true
+
+- name: Create Unbound configuration directory
+  ansible.builtin.file:
+    path: /etc/unbound/unbound.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Configure Unbound for Tor exit node
+  ansible.builtin.template:
+    src: unbound.conf.j2
+    dest: /etc/unbound/unbound.conf.d/tor-exit-node.conf
+    owner: root
+    group: root
+    mode: '0644'
+    validate: 'unbound-checkconf %s'
+  become: true
+  notify: Restart unbound
+
+- name: Configure main Unbound configuration
+  ansible.builtin.blockinfile:
+    path: /etc/unbound/unbound.conf
+    block: |
+      # Include Tor exit node specific configuration
+      include: "/etc/unbound/unbound.conf.d/*.conf"
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - Tor Exit Node"
+    create: false
+  become: true
+  notify: Restart unbound
+
+- name: Download root hints file
+  ansible.builtin.get_url:
+    url: https://www.internic.net/domain/named.root
+    dest: /var/lib/unbound/root.hints
+    owner: unbound
+    group: unbound
+    mode: '0644'
+  become: true
+  notify: Restart unbound
+
+- name: Create Unbound logrotate configuration
+  ansible.builtin.copy:
+    content: |
+      /var/log/unbound/unbound.log {
+          daily
+          rotate 7
+          compress
+          delaycompress
+          missingok
+          notifempty
+          create 0644 unbound unbound
+          postrotate
+              /usr/sbin/unbound-control log_reopen
+          endscript
+      }
+    dest: /etc/logrotate.d/unbound
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: Ensure Unbound log directory exists
+  ansible.builtin.file:
+    path: /var/log/unbound
+    state: directory
+    owner: unbound
+    group: unbound
+    mode: '0755'
+  become: true
+
+- name: Start and enable Unbound service
+  ansible.builtin.systemd:
+    name: unbound
+    state: started
+    enabled: true
+  become: true
+
+- name: Wait for Unbound to start
+  ansible.builtin.wait_for:
+    port: 53
+    delay: 2
+    timeout: 30
+
+- name: Test DNS resolution
+  ansible.builtin.command: dig @127.0.0.1 torproject.org
+  changed_when: false
+  register: dns_test
+  failed_when: dns_test.rc != 0
+
+- name: Display DNS test result
+  ansible.builtin.debug:
+    msg: "DNS resolution test successful - Unbound is working correctly"
+  when: dns_test.rc == 0
+
+- name: Configure system to use local resolver
+  ansible.builtin.copy:
+    content: |
+      # DNS configuration for Tor exit node
+      # Use local Unbound resolver
+      nameserver 127.0.0.1
+      options edns0 trust-ad
+    dest: /etc/resolv.conf
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  when: tor_dns_resolvers[0] == "127.0.0.1"
+
+- name: Prevent resolv.conf from being overwritten by DHCP
+  ansible.builtin.file:
+    path: /etc/resolv.conf
+    attr: +i
+  become: true
+  when: tor_dns_resolvers[0] == "127.0.0.1"
+  ignore_errors: true

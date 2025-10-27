@@ -1,0 +1,30 @@
+---
+# Tor Exit Node Role Metadata
+galaxy_info:
+  role_name: tor_exit_node
+  author: HomeLab Infrastructure Team
+  description: Deploy and configure a secure Tor exit node with hardening and monitoring
+  license: MIT
+
+  min_ansible_version: "2.19"
+
+  platforms:
+    - name: Ubuntu
+      versions:
+        - jammy  # 22.04 LTS
+        - noble  # 24.04 LTS
+    - name: Debian
+      versions:
+        - bullseye  # 11
+        - bookworm  # 12
+
+  galaxy_tags:
+    - tor
+    - privacy
+    - security
+    - networking
+    - vpn
+    - anonymity
+    - exit-node
+
+dependencies: []

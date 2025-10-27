@@ -1,0 +1,205 @@
+---
+# Tor Exit Node Main Tasks
+# This playbook deploys a secure Tor exit node following best practices
+
+- name: Display deployment banner
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Deploying Tor Exit Node: {{ tor_relay_nickname }}"
+      - "Contact: {{ tor_contact_info }}"
+      - "Exit Policy: {{ 'Reduced' if tor_reduced_exit_policy else 'Custom' }}"
+      - "=========================================="
+
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - tor_contact_info is defined
+      - tor_contact_info | length > 0
+      - tor_relay_nickname is defined
+      - tor_or_port is defined
+    fail_msg: "Required Tor configuration variables are missing. Check defaults/main.yml and your vault."
+    success_msg: "All required variables are defined."
+
+- name: Include OS-specific variables
+  ansible.builtin.include_vars: "{{ item }}"
+  with_first_found:
+    - "{{ ansible_distribution }}-{{ ansible_distribution_version }}.yml"
+    - "{{ ansible_distribution }}-{{ ansible_distribution_major_version }}.yml"
+    - "{{ ansible_distribution }}.yml"
+    - "{{ ansible_os_family }}.yml"
+    - "default.yml"
+  ignore_errors: true
+
+# ========================================
+# Phase 1: System Prerequisites
+# ========================================
+
+- name: Phase 1 - System Prerequisites and Updates
+  ansible.builtin.debug:
+    msg: "Phase 1: Installing prerequisites and updating system"
+
+- name: Include prerequisites tasks
+  ansible.builtin.include_tasks: prerequisites.yml
+  tags:
+    - prerequisites
+    - system
+
+# ========================================
+# Phase 2: System Hardening
+# ========================================
+
+- name: Phase 2 - System Hardening
+  ansible.builtin.debug:
+    msg: "Phase 2: Applying security hardening"
+  when: tor_enable_system_hardening | bool
+
+- name: Include hardening tasks
+  ansible.builtin.include_tasks: hardening.yml
+  when: tor_enable_system_hardening | bool
+  tags:
+    - hardening
+    - security
+
+# ========================================
+# Phase 3: DNS Configuration
+# ========================================
+
+- name: Phase 3 - DNS Configuration
+  ansible.builtin.debug:
+    msg: "Phase 3: Configuring local DNS resolver"
+  when: tor_install_unbound | bool
+
+- name: Include DNS configuration tasks
+  ansible.builtin.include_tasks: dns.yml
+  when: tor_install_unbound | bool
+  tags:
+    - dns
+    - unbound
+
+# ========================================
+# Phase 4: Tor Installation
+# ========================================
+
+- name: Phase 4 - Tor Installation
+  ansible.builtin.debug:
+    msg: "Phase 4: Installing Tor from official repository"
+
+- name: Include Tor installation tasks
+  ansible.builtin.include_tasks: tor-install.yml
+  tags:
+    - tor
+    - install
+
+# ========================================
+# Phase 5: Tor Configuration
+# ========================================
+
+- name: Phase 5 - Tor Configuration
+  ansible.builtin.debug:
+    msg: "Phase 5: Configuring Tor exit node"
+
+- name: Include Tor configuration tasks
+  ansible.builtin.include_tasks: tor-config.yml
+  tags:
+    - tor
+    - config
+
+# ========================================
+# Phase 6: Firewall Configuration
+# ========================================
+
+- name: Phase 6 - Firewall Configuration
+  ansible.builtin.debug:
+    msg: "Phase 6: Configuring firewall rules"
+  when: tor_firewall_enabled | bool
+
+- name: Include firewall configuration tasks
+  ansible.builtin.include_tasks: firewall.yml
+  when: tor_firewall_enabled | bool
+  tags:
+    - firewall
+    - security
+
+# ========================================
+# Phase 7: Monitoring Setup
+# ========================================
+
+- name: Phase 7 - Monitoring and Logging
+  ansible.builtin.debug:
+    msg: "Phase 7: Setting up monitoring and logging"
+  when: tor_enable_monitoring | bool
+
+- name: Include monitoring configuration tasks
+  ansible.builtin.include_tasks: monitoring.yml
+  when: tor_enable_monitoring | bool
+  tags:
+    - monitoring
+    - observability
+
+# ========================================
+# Phase 8: Backup Configuration
+# ========================================
+
+- name: Phase 8 - Backup Configuration
+  ansible.builtin.debug:
+    msg: "Phase 8: Configuring backups"
+  when: tor_enable_backups | bool
+
+- name: Include backup configuration tasks
+  ansible.builtin.include_tasks: backup.yml
+  when: tor_enable_backups | bool
+  tags:
+    - backup
+    - disaster-recovery
+
+# ========================================
+# Final Phase: Validation and Status
+# ========================================
+
+- name: Final validation - Check Tor service status
+  ansible.builtin.systemd:
+    name: tor
+    state: started
+    enabled: true
+  become: true
+
+- name: Wait for Tor to initialize
+  ansible.builtin.wait_for:
+    port: "{{ tor_or_port }}"
+    delay: 5
+    timeout: 60
+  ignore_errors: true
+
+- name: Display deployment summary
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Tor Exit Node Deployment Complete!"
+      - "=========================================="
+      - "Relay Nickname: {{ tor_relay_nickname }}"
+      - "ORPort: {{ tor_or_port }}"
+      - "DirPort: {{ tor_dir_port }}"
+      - "Exit Policy: {{ 'Reduced (Recommended)' if tor_reduced_exit_policy else 'Custom' }}"
+      - "Monitoring: {{ 'Enabled' if tor_enable_monitoring else 'Disabled' }}"
+      - ""
+      - "Next Steps:"
+      - "1. Configure reverse DNS: {{ tor_reverse_dns_hostname }}"
+      - "2. Update WHOIS records with contact information"
+      - "3. Inform your ISP about running a Tor exit node"
+      - "4. Monitor logs: journalctl -u tor -f"
+      - "5. Check relay status: https://metrics.torproject.org/"
+      - ""
+      - "Documentation: /etc/tor/README.exit-node"
+      - "=========================================="
+
+- name: Create post-deployment instructions file
+  ansible.builtin.template:
+    src: post-deployment-instructions.j2
+    dest: /etc/tor/README.exit-node
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  tags:
+    - documentation

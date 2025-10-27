@@ -1,0 +1,231 @@
+---
+# Firewall Configuration for Tor Exit Node
+
+# ========================================
+# UFW Firewall Configuration
+# ========================================
+
+- name: Configure UFW firewall
+  when: tor_firewall_type == 'ufw'
+  block:
+    - name: Ensure UFW is installed
+      ansible.builtin.apt:
+        name: ufw
+        state: present
+      become: true
+
+    - name: Reset UFW to default
+      community.general.ufw:
+        state: reset
+      become: true
+      when: ansible_check_mode is false
+
+    - name: Set UFW default policies
+      community.general.ufw:
+        direction: "{{ item.direction }}"
+        policy: "{{ item.policy }}"
+      become: true
+      loop:
+        - { direction: 'incoming', policy: 'deny' }
+        - { direction: 'outgoing', policy: 'allow' }
+        - { direction: 'routed', policy: 'deny' }
+
+    - name: Allow SSH access
+      community.general.ufw:
+        rule: allow
+        port: "{{ tor_ssh_port }}"
+        proto: tcp
+        comment: "SSH access"
+      become: true
+
+    - name: Allow SSH from specific sources (if defined)
+      community.general.ufw:
+        rule: allow
+        port: "{{ tor_ssh_port }}"
+        proto: tcp
+        src: "{{ item }}"
+        comment: "SSH from {{ item }}"
+      become: true
+      loop: "{{ tor_ssh_allowed_sources }}"
+      when: tor_ssh_allowed_sources | length > 0
+
+    - name: Allow Tor ORPort
+      community.general.ufw:
+        rule: allow
+        port: "{{ tor_or_port }}"
+        proto: tcp
+        comment: "Tor ORPort"
+      become: true
+
+    - name: Allow Tor DirPort
+      community.general.ufw:
+        rule: allow
+        port: "{{ tor_dir_port }}"
+        proto: tcp
+        comment: "Tor DirPort"
+      become: true
+      when: tor_dir_port is defined and tor_dir_port | int > 0
+
+    - name: Allow Tor ORPort IPv6
+      community.general.ufw:
+        rule: allow
+        port: "{{ tor_or_port }}"
+        proto: tcp
+        comment: "Tor ORPort IPv6"
+        interface_in: "{{ ansible_default_ipv6.interface | default('') }}"
+      become: true
+      when:
+        - tor_ipv6_enabled | bool
+        - ansible_default_ipv6 is defined
+
+    - name: Allow Prometheus exporter port
+      community.general.ufw:
+        rule: allow
+        port: "{{ tor_prometheus_exporter_port }}"
+        proto: tcp
+        src: "{{ item }}"
+        comment: "Prometheus Tor exporter"
+      become: true
+      loop: "{{ tor_ssh_allowed_sources }}"
+      when:
+        - tor_enable_prometheus_exporter | bool
+        - tor_ssh_allowed_sources | length > 0
+
+    - name: Allow additional custom ports
+      community.general.ufw:
+        rule: allow
+        port: "{{ item.port }}"
+        proto: "{{ item.proto | default('tcp') }}"
+        comment: "{{ item.comment | default('Custom port') }}"
+      become: true
+      loop: "{{ tor_additional_allowed_ports }}"
+      when: tor_additional_allowed_ports | length > 0
+
+    - name: Enable UFW
+      community.general.ufw:
+        state: enabled
+      become: true
+
+    - name: Enable UFW logging
+      community.general.ufw:
+        logging: "on"
+      become: true
+
+# ========================================
+# Rate Limiting for SSH
+# ========================================
+
+    - name: Enable rate limiting for SSH
+      community.general.ufw:
+        rule: limit
+        port: "{{ tor_ssh_port }}"
+        proto: tcp
+        comment: "Rate limit SSH"
+      become: true
+
+# ========================================
+# Firewalld Configuration (Alternative)
+# ========================================
+
+- name: Configure Firewalld
+  when: tor_firewall_type == 'firewalld'
+  block:
+    - name: Ensure firewalld is installed
+      ansible.builtin.apt:
+        name: firewalld
+        state: present
+      become: true
+
+    - name: Start and enable firewalld
+      ansible.builtin.systemd:
+        name: firewalld
+        state: started
+        enabled: true
+      become: true
+
+    - name: Set default zone to public
+      ansible.posix.firewalld:
+        zone: public
+        state: enabled
+        permanent: true
+        immediate: true
+      become: true
+
+    - name: Allow SSH in firewalld
+      ansible.posix.firewalld:
+        service: ssh
+        zone: public
+        permanent: true
+        immediate: true
+        state: enabled
+      become: true
+
+    - name: Allow Tor ORPort in firewalld
+      ansible.posix.firewalld:
+        port: "{{ tor_or_port }}/tcp"
+        zone: public
+        permanent: true
+        immediate: true
+        state: enabled
+      become: true
+
+    - name: Allow Tor DirPort in firewalld
+      ansible.posix.firewalld:
+        port: "{{ tor_dir_port }}/tcp"
+        zone: public
+        permanent: true
+        immediate: true
+        state: enabled
+      become: true
+      when: tor_dir_port is defined and tor_dir_port | int > 0
+
+# ========================================
+# Connection Tracking
+# ========================================
+
+- name: Load connection tracking modules
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  become: true
+  loop:
+    - nf_conntrack
+    - nf_conntrack_ipv4
+  failed_when: false
+
+- name: Configure connection tracking limits
+  ansible.posix.sysctl:
+    name: net.netfilter.nf_conntrack_max
+    value: '262144'
+    state: present
+    sysctl_set: true
+    reload: true
+  become: true
+
+# ========================================
+# Display Firewall Status
+# ========================================
+
+- name: Get UFW status
+  ansible.builtin.command: ufw status verbose
+  register: ufw_status
+  become: true
+  changed_when: false
+  when: tor_firewall_type == 'ufw'
+
+- name: Display UFW firewall rules
+  ansible.builtin.debug:
+    msg: "{{ ufw_status.stdout_lines }}"
+  when: tor_firewall_type == 'ufw'
+
+- name: Get firewalld status
+  ansible.builtin.command: firewall-cmd --list-all
+  register: firewalld_status
+  become: true
+  changed_when: false
+  when: tor_firewall_type == 'firewalld'
+
+- name: Display firewalld rules
+  ansible.builtin.debug:
+    msg: "{{ firewalld_status.stdout_lines }}"
+  when: tor_firewall_type == 'firewalld'

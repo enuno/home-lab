@@ -1,0 +1,104 @@
+---
+# Tor Installation from Official Repository
+
+- name: Add Tor Project GPG key
+  ansible.builtin.apt_key:
+    url: https://deb.torproject.org/torproject.org/A3C4F0F979CAA22CDBA8F512EE8CBC9E886DDD89.asc
+    state: present
+    keyring: /usr/share/keyrings/tor-archive-keyring.gpg
+  become: true
+  when:
+    - tor_use_official_repo | bool
+    - ansible_os_family == "Debian"
+
+- name: Add Tor Project repository
+  ansible.builtin.apt_repository:
+    repo: "deb [signed-by=/usr/share/keyrings/tor-archive-keyring.gpg] {{ tor_repo_url }} {{ tor_repo_distribution }} main"
+    filename: tor
+    state: present
+  become: true
+  when:
+    - tor_use_official_repo | bool
+    - ansible_os_family == "Debian"
+
+- name: Update apt cache after adding Tor repository
+  ansible.builtin.apt:
+    update_cache: true
+  become: true
+  when:
+    - tor_use_official_repo | bool
+    - ansible_os_family == "Debian"
+
+- name: Install Tor and related packages
+  ansible.builtin.apt:
+    name:
+      - tor
+      - tor-geoipdb
+      - deb.torproject.org-keyring
+    state: present
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Stop Tor service (will reconfigure before starting)
+  ansible.builtin.systemd:
+    name: tor
+    state: stopped
+  become: true
+
+- name: Ensure Tor user exists
+  ansible.builtin.user:
+    name: "{{ tor_user }}"
+    system: true
+    shell: /bin/false
+    home: "{{ tor_data_dir }}"
+    create_home: false
+  become: true
+
+- name: Ensure Tor directories exist with correct permissions
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ tor_user }}"
+    group: "{{ tor_group }}"
+    mode: '0700'
+  become: true
+  loop:
+    - "{{ tor_data_dir }}"
+    - "{{ tor_data_dir }}/keys"
+
+- name: Ensure Tor config directory exists
+  ansible.builtin.file:
+    path: "{{ tor_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  become: true
+
+- name: Ensure Tor log directory exists
+  ansible.builtin.file:
+    path: /var/log/tor
+    state: directory
+    owner: "{{ tor_user }}"
+    group: "{{ tor_group }}"
+    mode: '0750'
+  become: true
+
+- name: Check installed Tor version
+  ansible.builtin.command: tor --version
+  register: tor_version_output
+  changed_when: false
+
+- name: Display Tor version
+  ansible.builtin.debug:
+    msg: "Installed Tor version: {{ tor_version_output.stdout_lines[0] }}"
+
+- name: Verify Tor installation
+  ansible.builtin.command: tor --verify-config
+  become: true
+  become_user: "{{ tor_user }}"
+  changed_when: false
+  failed_when: false
+  register: tor_verify_initial
+  args:
+    chdir: "{{ tor_data_dir }}"
