@@ -1,0 +1,113 @@
+---
+# Tor Exit Node Group Variables
+#
+# These variables apply to all servers in the tor_exit_nodes group.
+# Override as needed in host_vars for specific hosts.
+#
+# Sensitive values are stored in tor_exit_nodes_vault.yml (encrypted)
+
+# ========================================
+# Tor Configuration Overrides
+# ========================================
+
+# Bandwidth settings (adjust based on your server capacity)
+# Recommended: Set to 80% of actual capacity for reliability
+tor_bandwidth_rate: 10240      # 10 MB/s
+tor_bandwidth_burst: 20480     # 20 MB/s
+
+# Use reduced exit policy (highly recommended to minimize abuse)
+tor_reduced_exit_policy: true
+
+# Enable IPv6 support if available
+tor_ipv6_enabled: true
+
+# ========================================
+# Security Settings
+# ========================================
+
+# Enable all security features
+tor_enable_system_hardening: true
+tor_enable_apparmor: true
+tor_enable_fail2ban: true
+tor_harden_ssh: true
+
+# Enable automatic security updates
+tor_enable_automatic_updates: true
+tor_auto_reboot_time: "02:00"
+
+# ========================================
+# Firewall Configuration
+# ========================================
+
+tor_firewall_enabled: true
+tor_firewall_type: "ufw"
+
+# SSH configuration
+tor_ssh_port: 22
+
+# Restrict SSH access to specific IPs (recommended)
+# Leave empty to allow from anywhere (less secure)
+tor_ssh_allowed_sources: []
+  # - "203.0.113.0/24"    # Example: Your office network
+  # - "198.51.100.50"     # Example: Your home IP
+
+# ========================================
+# Monitoring Configuration
+# ========================================
+
+tor_enable_monitoring: true
+tor_enable_prometheus_exporter: true
+tor_prometheus_exporter_port: 9130
+
+# Logging
+tor_log_level: "notice"
+tor_log_destination: "syslog"
+tor_enable_log_rotation: true
+tor_log_retention_days: 30
+
+# Alerts
+tor_enable_alerts: true
+
+# ========================================
+# Backup Configuration
+# ========================================
+
+tor_enable_backups: true
+tor_backup_dir: "/var/backups/tor"
+tor_backup_retention_days: 7
+tor_backup_schedule: "0 3 * * *"  # Daily at 3 AM
+
+# ========================================
+# DNS Configuration
+# ========================================
+
+# Install and configure Unbound (recommended by Tor Project)
+tor_install_unbound: true
+unbound_enable_dnssec: true
+unbound_qname_minimization: true
+unbound_cache_size: "256m"
+
+# ========================================
+# Performance Tuning
+# ========================================
+
+# Enable kernel tuning for high-performance relay
+tor_enable_kernel_tuning: true
+
+# Connection limits
+tor_max_connections: 10000
+tor_nofile_limit: 65536
+tor_nproc_limit: 32768
+
+# ========================================
+# Exit Notice Configuration
+# ========================================
+
+tor_exit_notice_enabled: true
+
+# ========================================
+# Repository Configuration
+# ========================================
+
+# Use official Tor Project repository for latest version
+tor_use_official_repo: true

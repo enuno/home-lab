@@ -1,0 +1,70 @@
+---
+# Tor Exit Node Vault Variables Template
+#
+# This is a TEMPLATE file for the encrypted vault.
+# DO NOT ENCRYPT THIS FILE - it serves as documentation.
+#
+# Usage:
+#   1. Copy this file to tor_exit_nodes_vault.yml
+#   2. Fill in real values
+#   3. Encrypt using: ansible-vault encrypt group_vars/tor_exit_nodes_vault.yml
+#   4. Commit both files to version control
+#
+# To edit the encrypted file:
+#   ansible-vault edit group_vars/tor_exit_nodes_vault.yml
+
+# ========================================
+# REQUIRED: Tor Relay Contact Information
+# ========================================
+
+# Contact information for relay operator (REQUIRED by Tor Project)
+# Format: Name <email> [GPG Key ID]
+# Example: "John Doe <john@example.com> [0x1234ABCD]"
+tor_contact_info_vault: "Your Name <your-email@example.com>"
+
+# ========================================
+# Operator Information
+# ========================================
+
+# Full name of the relay operator
+tor_operator_name_vault: "Your Name or Organization"
+
+# Operator email address
+tor_operator_email_vault: "operator@example.com"
+
+# Abuse complaint email
+tor_abuse_email_vault: "abuse@example.com"
+
+# ========================================
+# Exit Notice Configuration
+# ========================================
+
+# Domain name for exit notice (optional)
+# If not set, will use server IP address
+tor_exit_notice_domain_vault: "tor-exit.example.com"
+
+# ========================================
+# Monitoring and Alerts
+# ========================================
+
+# Email address for system alerts and notifications
+tor_alert_email_vault: "alerts@example.com"
+
+# ========================================
+# SSH Configuration (Optional)
+# ========================================
+
+# List of users allowed to SSH into the server
+# Leave empty to allow all users (not recommended)
+tor_ssh_allow_users:
+  - "admin"
+  - "operator"
+
+# ========================================
+# Additional Secrets
+# ========================================
+
+# If you need to add any additional secrets, add them here
+# Example:
+# custom_api_key: "your-secret-api-key"
+# monitoring_token: "your-monitoring-token"
