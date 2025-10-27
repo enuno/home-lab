@@ -1,511 +1,459 @@
-# Home Lab Infrastructure Development Project
+# Claude.md — Home Lab Infrastructure Automation Project Context
 
 ## Project Overview
+This home lab project implements production-grade infrastructure automation while maintaining flexibility for rapid experimentation and learning. The repository manages a complete infrastructure stack using Infrastructure as Code (IaC) principles with Terraform, Ansible, and Kubernetes.
 
-This is a comprehensive home lab infrastructure project focused on building production-grade systems using modern DevOps practices while maintaining rapid experimentation velocity. The project encompasses virtualization, containerization, networking, storage, automation, IoT integration, and cloud-native architectures.
+**Primary Goals:**
+- Build highly available home lab infrastructure with enterprise patterns
+- Migrate from Ansible Vault to Bitwarden Secrets Manager for centralized secrets management
+- Implement staging/pre-production quality code standards (not overly strict, but reliable)
+- Create reusable modules and roles for community sharing
+- Document everything for knowledge sharing and reproducibility
 
-### Primary Goals
+**Current Status:**
+- Active migration from Ansible Vault to Bitwarden Secrets Manager
+- Multi-node Kubernetes cluster (K3s) with HA configuration
+- GitOps workflows with Flux/ArgoCD
+- Comprehensive monitoring with Prometheus, Grafana, and logging stack
 
-1. **Research & Experimentation**: Test and evaluate emerging infrastructure technologies
-2. **Skill Development**: Hands-on experience with enterprise-grade tools and patterns
-3. **Production Patterns**: Implement HA, load balancing, caching, and resilience patterns
-4. **Cost Optimization**: Maximize value from home lab hardware investment
-5. **Community Contribution**: Document learnings and contribute to open-source projects
+## Current Tool Versions (October 2025)
+When generating code or providing recommendations, use these specific versions:
 
-## Technology Stack
+```yaml
+Infrastructure Tools:
+  terraform: "1.13.3"
+  ansible_core: "2.19.3"
+  ansible_community: "12.1.0"
+  kubernetes: "1.34.x"
+  helm: "3.x"
 
-### Core Infrastructure (Latest Stable Versions)
-- **Terraform**: 1.13.3 - Infrastructure as Code
-- **Ansible Core**: 2.19.3 - Configuration Management
-- **Ansible Community**: 12.1.0 - Extended modules and collections
-- **Kubernetes**: 1.34.x - Container Orchestration
-- **Docker**: Latest stable - Containerization
-- **Python**: 3.11+ - Automation scripting
+Programming Languages:
+  python: "3.11+"
+  node: "20.x LTS"
 
-### Virtualization Platforms
-- **Proxmox VE**: Primary hypervisor for VM and container management
-- **XCP-NG**: Alternative hypervisor for testing and comparison
-- **VMware ESXi**: Enterprise-grade hypervisor (if licensed)
+Secrets Management:
+  bitwarden_sdk: "latest"
+  bitwarden_ansible_collection: "bitwarden.secrets"
 
-### Container Orchestration
-- **Kubernetes (K8s)**: Full-featured orchestration
-- **K3s**: Lightweight Kubernetes for resource-constrained environments
-- **Docker Compose**: Development and simple service deployments
-- **Rancher**: Multi-cluster Kubernetes management
-
-### Networking Solutions
-- **pfSense/OPNsense**: Open-source firewall and router
-- **Ubiquiti UniFi**: Enterprise WiFi and network management
-- **Tailscale**: Mesh VPN and zero-trust networking
-- **HAProxy**: High-availability load balancing
-- **Traefik**: Cloud-native edge router
-
-### Storage Solutions
-- **TrueNAS Scale**: Enterprise NAS with ZFS
-- **OpenMediaVault**: Lightweight NAS solution
-- **Synology DSM**: Commercial NAS (if available)
-- **Ceph/Rook/Longhorn**: Distributed storage for Kubernetes
-
-### Cloud Platforms
-- **AWS**: Primary cloud provider (EC2, ECS, EKS, RDS, S3)
-- **Google Cloud**: Secondary cloud (GCE, GKE, Cloud Storage)
-- **Vercel**: Edge and serverless deployments
-- **Heroku**: Quick application deployments
-
-### Monitoring & Observability
-- **Prometheus**: Metrics collection
-- **Grafana**: Visualization and dashboards
-- **Loki**: Log aggregation
-- **Zabbix**: Enterprise monitoring
-- **ELK Stack**: Elasticsearch, Logstash, Kibana for log analysis
-
-### Automation & IoT
-- **Home Assistant**: Home automation hub
-- **ESPHome**: ESP device firmware
-- **Node-RED**: Flow-based automation
-- **MQTT**: Message broker for IoT
-- **Zigbee2MQTT/Z-Wave JS**: Smart device integration
-
-### CI/CD & Development
-- **GitLab/GitHub**: Source control and CI/CD
-- **Jenkins**: Automation server
-- **ArgoCD**: GitOps for Kubernetes
-- **Ansible AWX/Tower**: Ansible automation platform
-
-## Project Architecture
-
-### Network Segmentation
-
-```
-Internet
-   ↓
-Firewall/Router (pfSense/OPNsense)
-   ↓
-[VLAN 10] Management Network (Proxmox, switches, access)
-[VLAN 20] Production Services (web apps, APIs)
-[VLAN 30] Development/Testing (experimental services)
-[VLAN 40] IoT Devices (isolated smart home devices)
-[VLAN 50] Guest Network (untrusted devices)
-[VLAN 99] Infrastructure (Kubernetes, storage)
+Code Quality:
+  pre_commit: "latest"
+  ansible_lint: "latest"
+  terraform_lint: "latest"
+  yamllint: "latest"
+  black: "latest"
+  ruff: "latest"
 ```
 
-### High Availability Design
+## Architecture Overview
 
-```
-Load Balancer Tier
-   ├── HAProxy Primary (keepalived VIP)
-   └── HAProxy Secondary (keepalived backup)
+### Infrastructure Layers
+1. **Hardware Layer**: 3+ node cluster (1 master, 2+ workers) on Proxmox VE or bare metal
+2. **Network Layer**: VLANs, firewall rules, load balancers, DNS services
+3. **Compute Layer**: Kubernetes cluster with HA control plane
+4. **Storage Layer**: NFS/iSCSI for persistent volumes, automated backups
+5. **Application Layer**: Containerized services, GitOps deployment
+6. **Observability Layer**: Metrics, logs, traces, alerting
 
-Application Tier
-   ├── Web Server 1 (Docker/K8s)
-   ├── Web Server 2 (Docker/K8s)
-   └── Web Server 3 (Docker/K8s)
+### High Availability Design Patterns
+- **Multi-master Kubernetes**: 3+ control plane nodes with etcd clustering
+- **Load Balancing**: HAProxy/Traefik for ingress traffic distribution
+- **Database HA**: PostgreSQL with Patroni for automatic failover
+- **Storage Replication**: Distributed storage with multi-node replication
+- **Network Redundancy**: Multiple network paths and failover routes
 
-Caching Tier
-   ├── Redis Sentinel 1
-   ├── Redis Sentinel 2
-   └── Redis Sentinel 3
+### Secrets Management Architecture
+**Legacy (Current State):**
+- Ansible Vault for encrypted files in `group_vars/*/vault.yml`
+- Vault password file at `ansible/.vault_password` (gitignored)
+- Variables prefixed with `vault_` for identification
 
-Database Tier
-   ├── PostgreSQL Primary (Patroni)
-   ├── PostgreSQL Replica 1 (streaming replication)
-   └── PostgreSQL Replica 2 (streaming replication)
+**Target State (In Migration):**
+- Bitwarden Secrets Manager for centralized secret storage
+- Machine accounts for automation contexts (dev, staging, prod)
+- Projects organized by environment and service type
+- Lookup pattern: `{{ lookup('bitwarden.secrets.lookup', 'SECRET_ID') }}`
+- BWS_ACCESS_TOKEN environment variable for authentication
 
-Storage Tier
-   ├── TrueNAS Primary (NFS/iSCSI/SMB)
-   └── TrueNAS Backup (replication target)
-```
+## Code Quality Standards (Staging/Pre-Prod Level)
 
-### Kubernetes Cluster Architecture
+### Quality Philosophy
+This home lab balances production-grade patterns with practical flexibility:
+- ✅ **Security**: Medium-high (secure but not paranoid)
+- ✅ **Functionality**: High (must work reliably)
+- ✅ **Readability**: High (clear, well-documented code)
+- ✅ **Testing**: Moderate (practical tests, not exhaustive)
+- ✅ **Strictness**: Moderate (warnings acceptable, critical errors fail)
+- ✅ **Experimentation**: Encouraged (can bypass checks for WIP with documentation)
 
-```
-Control Plane (HA)
-   ├── Master Node 1
-   ├── Master Node 2
-   └── Master Node 3
+### Must-Pass Quality Gates
+- ❌ **No secrets in commits** (detect-secrets hook enforces)
+- ❌ **Valid Ansible syntax** (ansible-lint catches errors)
+- ❌ **Valid Terraform syntax** (terraform fmt, terraform validate)
+- ❌ **Valid YAML syntax** (yamllint with relaxed rules)
+- ❌ **Critical security issues** (tfsec, checkov on high/critical findings)
 
-Worker Nodes
-   ├── Worker 1 (general workloads)
-   ├── Worker 2 (general workloads)
-   ├── Worker 3 (general workloads)
-   ├── GPU Worker 1 (ML/AI workloads)
-   └── Storage Node (Rook/Ceph OSDs)
+### Should-Pass (Warnings OK)
+- ⚠️ Ansible-lint style suggestions
+- ⚠️ Terraform tflint recommendations
+- ⚠️ Minor security improvements
+- ⚠️ Documentation gaps (fix before PR merge)
+- ⚠️ Performance optimizations
 
-Ingress
-   ├── Nginx Ingress Controller (DaemonSet)
-   └── Cert-Manager (Let's Encrypt automation)
-```
+### Can Skip for WIP
+- Use `git commit --no-verify` for work-in-progress commits
+- Document why in commit message
+- Fix issues before final merge to main branch
 
-## Development Principles
+## Common Development Tasks
 
-### Security Model
-- **Home Lab Context**: Permissive security for rapid experimentation
-- **Production Patterns**: Always implement proper authentication, encryption, and access controls
-- **Defense in Depth**: Multiple layers of security (network, application, data)
-- **Zero Trust**: Verify explicitly, use least privilege, assume breach
+### Ansible Playbook Patterns
 
-### Code Quality Standards
-- **Infrastructure as Code**: All infrastructure must be version-controlled
-- **Immutable Infrastructure**: Treat infrastructure as disposable
-- **Documentation**: Code is documentation; comments explain why, not what
-- **Testing**: Validate changes in isolated environments before production
-- **Version Pinning**: Use specific versions; upgrade deliberately
+**Standard Playbook Structure:**
+```yaml
+---
+- name: Descriptive task name
+  hosts: target_group
+  become: true
+  vars_files:
+    - group_vars/all/vars.yml
 
-### Operational Excellence
-- **Monitoring First**: Implement observability from day one
-- **Automate Everything**: Manual processes are technical debt
-- **Fail Fast**: Quick feedback loops for rapid iteration
-- **Disaster Recovery**: Test backup and restore procedures regularly
-- **Capacity Planning**: Monitor resource usage and plan for growth
+  pre_tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
 
-## Project Structure
+  tasks:
+    - name: Use Bitwarden secret (new pattern)
+      ansible.builtin.debug:
+        msg: "{{ lookup('bitwarden.secrets.lookup', 'prod-db-password') }}"
+      no_log: true
 
-```
-home-lab/
-├── .clinerules/              # Cline AI assistant rules
-├── .cursor/rules/            # Cursor IDE rules
-├── .aider.conf.yml           # Aider AI configuration
-├── Claude.md                 # This file - Claude project context
-├── .prettierrc               # Code formatting rules
-├── .eslintrc.js              # JavaScript linting rules
-├── .yamllint                 # YAML linting rules
-├── .tflint.hcl               # Terraform linting rules
-├── pyproject.toml            # Python project configuration
-├── .pre-commit-config.yaml   # Pre-commit hooks
-├── .editorconfig             # Editor configuration
-├── .gitignore                # Git ignore patterns
-├── README.md                 # Project README
-├── ARCHITECTURE.md           # Architecture documentation
-├── CHANGELOG.md              # Change log
-│
-├── terraform/                # Infrastructure as Code
-│   ├── modules/              # Reusable Terraform modules
-│   ├── environments/         # Environment-specific configs
-│   │   ├── dev/
-│   │   ├── staging/
-│   │   └── prod/
-│   ├── backend.tf            # Remote state configuration
-│   ├── versions.tf           # Version constraints
-│   └── providers.tf          # Provider configurations
-│
-├── ansible/                  # Configuration Management
-│   ├── playbooks/            # Ansible playbooks
-│   ├── roles/                # Custom roles
-│   ├── inventory/            # Inventory files
-│   │   ├── production/
-│   │   └── staging/
-│   ├── group_vars/           # Group variables
-│   ├── host_vars/            # Host variables
-│   ├── ansible.cfg           # Ansible configuration
-│   └── requirements.yml      # Galaxy role requirements
-│
-├── kubernetes/               # Kubernetes manifests
-│   ├── base/                 # Base manifests
-│   ├── overlays/             # Kustomize overlays
-│   │   ├── dev/
-│   │   ├── staging/
-│   │   └── prod/
-│   ├── helm/                 # Helm charts
-│   └── operators/            # Kubernetes operators
-│
-├── docker/                   # Container definitions
-│   ├── applications/         # Application Dockerfiles
-│   ├── services/             # Service Dockerfiles
-│   └── docker-compose/       # Compose files
-│       ├── dev/
-│       └── prod/
-│
-├── scripts/                  # Automation scripts
-│   ├── setup/                # Initial setup scripts
-│   ├── backup/               # Backup automation
-│   ├── monitoring/           # Monitoring scripts
-│   └── maintenance/          # Maintenance automation
-│
-├── monitoring/               # Monitoring configurations
-│   ├── prometheus/           # Prometheus configs
-│   ├── grafana/              # Grafana dashboards
-│   ├── alertmanager/         # Alert configurations
-│   └── loki/                 # Loki configurations
-│
-├── networking/               # Network configurations
-│   ├── firewall/             # Firewall rules
-│   ├── vpn/                  # VPN configurations
-│   ├── tailscale/            # Tailscale ACLs
-│   └── haproxy/              # Load balancer configs
-│
-├── storage/                  # Storage configurations
-│   ├── truenas/              # TrueNAS configurations
-│   ├── ceph/                 # Ceph configurations
-│   └── nfs/                  # NFS exports
-│
-├── iot/                      # IoT configurations
-│   ├── home-assistant/       # Home Assistant configs
-│   ├── esphome/              # ESPHome device configs
-│   ├── zigbee2mqtt/          # Zigbee configurations
-│   └── node-red/             # Node-RED flows
-│
-├── docs/                     # Documentation
-│   ├── guides/               # How-to guides
-│   ├── runbooks/             # Operational runbooks
-│   ├── architecture/         # Architecture diagrams
-│   └── decisions/            # Architecture decision records
-│
-└── tests/                    # Testing
-    ├── integration/          # Integration tests
-    ├── performance/          # Performance tests
-    └── security/             # Security tests
+    - name: Use vault variable (legacy pattern - being migrated)
+      ansible.builtin.debug:
+        msg: "{{ vault_database_password }}"
+      no_log: true
+
+  handlers:
+    - name: Restart service
+      ansible.builtin.systemd:
+        name: myservice
+        state: restarted
 ```
 
-## Key Patterns & Best Practices
+**Best Practices for This Project:**
+- Always use FQCN (Fully Qualified Collection Names): `ansible.builtin.copy` not `copy`
+- Use `check_mode` support: `check_mode: yes` for dry runs
+- Implement idempotency: tasks should be safe to run multiple times
+- Tag tasks appropriately: `--tags` for selective execution
+- Use blocks for error handling and conditional logic
+- Mask sensitive output: `no_log: true` on secret-handling tasks
 
-### Infrastructure as Code
-- **Version Everything**: All infrastructure configuration in Git
-- **Modularity**: Create reusable Terraform modules and Ansible roles
-- **State Management**: Use remote state for Terraform (S3, GCS, TF Cloud)
-- **Secrets Management**: Use Ansible Vault, SOPS, or external secret managers
-- **Documentation**: Generate docs from code (terraform-docs, ansible-doc)
+### Terraform Module Patterns
 
-#### Ansible Vault Best Practices
+**Standard Module Structure:**
+```hcl
+# modules/vm/main.tf
+terraform {
+  required_version = ">= 1.13.0"
 
-**IMPORTANT**: When creating files that will be encrypted with `ansible-vault`, always follow this pattern:
+  required_providers {
+    proxmox = {
+      source  = "telmate/proxmox"
+      version = "~> 2.9"
+    }
+  }
+}
 
-1. **Create Template File First** (`.template` suffix):
-   ```yaml
-   # File: ansible/group_vars/service_vault.yml.template
-   ---
-   # Service Vault Template - DO NOT ENCRYPT THIS FILE
-   # This is a reference template for the encrypted vault file
-   # Copy to service_vault.yml and add real values, then encrypt
+resource "proxmox_vm_qemu" "this" {
+  for_each = var.vms
 
-   # Example secrets
-   service_api_key: "your-api-key-here"
-   service_password: "your-password-here"
-   service_auth_token: "your-auth-token-here"
-   ```
+  name        = each.value.name
+  target_node = each.value.node
+  clone       = var.template_name
 
-2. **Create Actual Vault File** (with real values):
-   ```yaml
-   # File: ansible/group_vars/service_vault.yml
-   ---
-   # Service Vault - ENCRYPT THIS FILE
-   # Encrypt using: ansible-vault encrypt group_vars/service_vault.yml
+  cores   = each.value.cores
+  memory  = each.value.memory
 
-   service_api_key: "real-api-key-value"
-   service_password: "real-password-value"
-   service_auth_token: "real-auth-token-value"
-   ```
+  # HA configuration
+  lifecycle {
+    create_before_destroy = true
+    ignore_changes        = [network]
+  }
 
-3. **Encrypt the Vault File**:
-   ```bash
-   ansible-vault encrypt ansible/group_vars/service_vault.yml
-   ```
+  # Tagging for organization
+  tags = merge(
+    var.common_tags,
+    {
+      Environment = var.environment
+      ManagedBy   = "Terraform"
+    }
+  )
+}
+```
 
-4. **Commit Both Files**:
-   ```bash
-   git add ansible/group_vars/service_vault.yml ansible/group_vars/service_vault.yml.template
-   git commit -m "feat: add service vault configuration"
-   ```
+**Best Practices for This Project:**
+- Use `for_each` over `count` for resource management
+- Pin provider versions with `~>` for minor version upgrades
+- Implement lifecycle rules for HA and safety
+- Tag all resources for organization and cost tracking
+- Use remote state (S3, Terraform Cloud) for team collaboration
+- Document modules with `terraform-docs` (auto-generated in README.md)
 
-**Why Use .template Files**:
-- Provides clear documentation of required variables
-- Shows expected format and structure
-- Safe to commit to version control (no secrets)
-- Helps new team members understand what secrets are needed
-- Serves as backup reference if vault file is corrupted
-- Makes it easy to recreate vault files in new environments
+### Kubernetes Manifest Patterns
 
-**Vault Operations**:
+**Standard Deployment:**
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-deployment
+  namespace: production
+  labels:
+    app: myapp
+    environment: prod
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+      - name: app
+        image: registry.local/myapp:v1.2.3  # Specific tag, not 'latest'
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        env:
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: db-password
+```
+
+## Security Context
+
+### Secrets Management Migration (Active)
+**Current State:** Ansible Vault files scattered across `group_vars/` and `host_vars/`
+
+**Migration Process:**
+1. Inventory all vault files and categorize secrets
+2. Set up Bitwarden organization with projects (dev, staging, prod)
+3. Create machine accounts for automation
+4. Export secrets from vault files (keeping encrypted backups)
+5. Import secrets to Bitwarden with proper project assignment
+6. Update playbooks to use Bitwarden lookup plugin
+7. Test thoroughly in dev before promoting to prod
+8. Maintain parallel operation during transition
+9. Archive vault files after successful migration
+
+**Authentication:**
+- Development: Manual Bitwarden login, `bw unlock`
+- CI/CD: `BWS_ACCESS_TOKEN` environment variable injected securely
+- Machine accounts: Separate tokens per environment/purpose
+
+### General Security Practices
+- **Never commit secrets**: pre-commit hook `detect-secrets` enforces
+- **Use SSH keys**: Passwordless authentication for all automation
+- **Network segmentation**: VLANs separate management, services, DMZ
+- **Principle of least privilege**: Minimal permissions for all accounts
+- **Regular updates**: Automated security patching (with testing)
+- **Audit logging**: All privileged actions logged to central location
+
+## Testing Requirements
+
+### Ansible Testing
 ```bash
-# Edit encrypted file
-ansible-vault edit ansible/group_vars/service_vault.yml
+# Syntax check
+ansible-playbook playbook.yml --syntax-check
 
-# View encrypted file
-ansible-vault view ansible/group_vars/service_vault.yml
+# Dry run (check mode)
+ansible-playbook playbook.yml --check
 
-# Decrypt file (for editing manually)
-ansible-vault decrypt ansible/group_vars/service_vault.yml
+# Diff mode (show changes)
+ansible-playbook playbook.yml --check --diff
 
-# Re-encrypt after manual editing
-ansible-vault encrypt ansible/group_vars/service_vault.yml
+# Lint playbook (moderate strictness)
+ansible-lint playbook.yml
 
-# Change vault password
-ansible-vault rekey ansible/group_vars/service_vault.yml
+# Test with Molecule (for roles)
+cd roles/myrole && molecule test
 ```
 
-**Directory Structure Example**:
-```
-ansible/group_vars/
-├── all_vault.yml              # Encrypted - Global secrets
-├── all_vault.yml.template     # Unencrypted - Reference template
-├── haproxy_vault.yml          # Encrypted - HAProxy secrets
-├── haproxy_vault.yml.template # Unencrypted - Reference template
-├── k3s_cluster_vault.yml      # Encrypted - K3s secrets
-└── k3s_cluster_vault.yml.template  # Unencrypted - Reference template
-```
-
-### Container Orchestration
-- **Namespace Isolation**: Separate workloads by namespace
-- **Resource Limits**: Always define requests and limits
-- **Health Checks**: Implement liveness and readiness probes
-- **Rolling Updates**: Zero-downtime deployments with proper strategies
-- **StatefulSets**: For databases and stateful applications
-- **ConfigMaps/Secrets**: Externalize configuration
-
-### High Availability
-- **Load Balancing**: Distribute traffic across multiple backends
-- **Health Checks**: Active monitoring of service health
-- **Auto-healing**: Automatic recovery from failures
-- **Horizontal Scaling**: Scale out, not just up
-- **Circuit Breakers**: Prevent cascading failures
-- **Retry Logic**: Implement exponential backoff
-
-### Monitoring & Alerting
-- **Four Golden Signals**: Latency, traffic, errors, saturation
-- **RED Method**: Rate, errors, duration for services
-- **USE Method**: Utilization, saturation, errors for resources
-- **Log Everything**: Structured logging with correlation IDs
-- **Alert on SLOs**: Service level objectives, not arbitrary thresholds
-
-### Security Practices
-- **Least Privilege**: Minimal necessary permissions
-- **Network Segmentation**: VLANs and firewall rules
-- **Encryption**: TLS in transit, encryption at rest
-- **Secret Rotation**: Regular credential rotation
-- **Security Scanning**: Container and dependency scanning
-- **Audit Logging**: Track all administrative actions
-
-## Common Tasks
-
-### Infrastructure Deployment
+### Terraform Testing
 ```bash
-# Terraform workflow
-cd terraform/environments/prod
-terraform init
+# Format check
+terraform fmt -check -recursive
+
+# Validation
+terraform validate
+
+# Plan (see changes before apply)
 terraform plan -out=tfplan
+
+# Security scanning
+tfsec .
+checkov -d .
+
+# Documentation generation
+terraform-docs markdown . > README.md
+```
+
+### Kubernetes Testing
+```bash
+# Dry run
+kubectl apply --dry-run=client -f manifest.yml
+
+# Server-side validation
+kubectl apply --dry-run=server -f manifest.yml
+
+# Diff before apply
+kubectl diff -f manifest.yml
+
+# Validate with kubeval
+kubeval manifest.yml
+```
+
+## Home Lab Constraints and Optimizations
+
+### Resource Constraints
+- **Limited CPU/RAM**: Optimize resource requests/limits, use spot/burst
+- **Storage capacity**: Implement tiered storage, automated cleanup policies
+- **Network bandwidth**: Cache frequently accessed content, optimize transfers
+- **Power consumption**: Consider power-efficient components, shutdown schedules
+
+### Cost Optimization
+- **Use open-source tools**: Prefer OSS over commercial where appropriate
+- **Efficient resource allocation**: Right-size VMs and containers
+- **Deduplication**: Avoid duplicate data in storage and backups
+- **Automation**: Reduce manual time investment through IaC
+
+### Learning Priorities
+- **Production patterns**: Implement HA, load balancing, monitoring like real infrastructure
+- **Industry tools**: Use same tools as production environments (Ansible, Terraform, K8s)
+- **Documentation**: Write everything down for future reference and community sharing
+- **Experimentation**: Balance stability with trying new technologies
+
+## AI Assistant Interaction Guidelines
+
+### When Generating Code
+1. **Always specify versions**: Use the tool versions listed in this document
+2. **Follow project patterns**: Match existing code structure and naming conventions
+3. **Include comments**: Explain non-obvious logic and design decisions
+4. **Consider HA**: Design for high availability and failure scenarios
+5. **Think security**: Never hardcode secrets, use proper secret management
+6. **Test compatibility**: Ensure code works with existing infrastructure
+
+### When Providing Recommendations
+1. **Be practical**: Consider home lab constraints (resources, budget, time)
+2. **Explain trade-offs**: Production vs. home lab approaches
+3. **Suggest alternatives**: Provide options with pros/cons
+4. **Include examples**: Show concrete implementation code
+5. **Link to docs**: Reference official documentation for further learning
+6. **Mention migration**: Consider Bitwarden migration impact on suggestions
+
+### When Troubleshooting
+1. **Ask clarifying questions**: Gather context before suggesting solutions
+2. **Check basics first**: Syntax, connectivity, permissions, versions
+3. **Review logs**: Analyze error messages and stack traces
+4. **Suggest debugging steps**: Incremental troubleshooting approach
+5. **Consider rollback**: If stuck, suggest reverting to known-good state
+6. **Document resolution**: Update runbooks with solution for future reference
+
+## Quick Reference Commands
+
+### Pre-commit Hooks
+```bash
+# Install hooks
+pre-commit install
+
+# Run on all files
+pre-commit run --all-files
+
+# Run specific hook
+pre-commit run ansible-lint --all-files
+
+# Bypass hooks (for WIP commits)
+git commit --no-verify -m "WIP: debugging issue"
+```
+
+### Ansible
+```bash
+# Ping all hosts
+ansible -i inventory/hosts.ini all -m ping
+
+# Run playbook with check mode
+ansible-playbook -i inventory site.yml --check
+
+# Run with tags
+ansible-playbook -i inventory site.yml --tags "setup,deploy"
+
+# Vault operations (legacy - being migrated to Bitwarden)
+ansible-vault edit group_vars/prod/vault.yml
+ansible-vault view group_vars/prod/vault.yml
+```
+
+### Terraform
+```bash
+# Initialize workspace
+terraform init
+
+# Format code
+terraform fmt -recursive
+
+# Validate configuration
+terraform validate
+
+# Plan changes
+terraform plan -out=tfplan
+
+# Apply changes
 terraform apply tfplan
 
-# Ansible workflow
-cd ansible
-ansible-playbook -i inventory/production playbooks/site.yml --check
-ansible-playbook -i inventory/production playbooks/site.yml
+# Generate documentation
+terraform-docs markdown . > README.md
 ```
 
-### Kubernetes Operations
+### Kubernetes
 ```bash
-# Apply manifests
-kubectl apply -k kubernetes/overlays/prod
+# Apply manifest with dry-run
+kubectl apply -f manifest.yml --dry-run=server
 
-# Scale deployment
-kubectl scale deployment/app --replicas=5 -n production
+# Get resource status
+kubectl get pods -n production -o wide
 
-# Rolling update
-kubectl set image deployment/app app=app:v2 -n production
-
-# Rollback
-kubectl rollout undo deployment/app -n production
-```
-
-### Monitoring & Debugging
-```bash
-# Check system health
-ansible all -m ping -i inventory/production
-kubectl get nodes
-kubectl top nodes
-kubectl top pods -A
+# Describe resource
+kubectl describe deployment myapp -n production
 
 # View logs
-kubectl logs -f deployment/app -n production
-docker-compose logs -f service-name
+kubectl logs -f deployment/myapp -n production
 
-# Port forward for debugging
-kubectl port-forward svc/app 8080:80 -n production
+# Execute in pod
+kubectl exec -it pod-name -n production -- /bin/bash
 ```
 
-## Learning Resources
-
-### Official Documentation
-- Terraform: https://developer.hashicorp.com/terraform
-- Ansible: https://docs.ansible.com
-- Kubernetes: https://kubernetes.io/docs
-- Docker: https://docs.docker.com
-- Prometheus: https://prometheus.io/docs
-
-### Community Resources
-- r/homelab: https://reddit.com/r/homelab
-- r/selfhosted: https://reddit.com/r/selfhosted
-- Awesome Selfhosted: https://github.com/awesome-selfhosted/awesome-selfhosted
-- Awesome Kubernetes: https://github.com/ramitsurana/awesome-kubernetes
-
-## Troubleshooting Guide
-
-### Common Issues
-
-1. **Terraform State Lock**
-   - Check for stale locks in backend
-   - Force unlock if necessary (with caution)
-
-2. **Ansible Connection Issues**
-   - Verify SSH key authentication
-   - Check firewall rules and network connectivity
-
-3. **Kubernetes Pod Failures**
-   - Check pod logs and events
-   - Verify resource availability
-   - Review configuration and secrets
-
-4. **Network Connectivity**
-   - Check VLAN configuration
-   - Verify firewall rules
-   - Test with ping and traceroute
-
-5. **Storage Issues**
-   - Check disk space and inode usage
-   - Verify NFS/iSCSI connectivity
-   - Review ZFS pool health
-
-## Contributing
-
-When contributing to this project:
-
-1. **Branch Strategy**: Create feature branches from `main`
-2. **Commit Messages**: Use conventional commits format
-3. **Testing**: Test changes in dev environment first
-4. **Documentation**: Update docs with code changes
-5. **Pull Requests**: Get review before merging to main
-
-## Support & Communication
-
-- **Project Owner**: Technology Solutions Architect
-- **Expertise**: 20+ years telecommunications, systems engineering, blockchain/Web3/DePIN
-- **Focus Areas**: ISP infrastructure, community broadband, decentralized networks
-
-## Notes for AI Assistants
-
-### Context Awareness
-- This is a **home lab** environment optimized for learning and experimentation
-- Security can be more permissive than enterprise production
-- Focus on **production-grade patterns** for resilience and scalability
-- Cost optimization is important (open-source preferred, efficient resource usage)
-- Documentation is critical for knowledge retention
-
-### Code Generation Guidelines
-- Always use **latest stable versions** of tools
-- Identify and remove **deprecated features** proactively
-- Include **inline comments** for complex logic
-- Implement **error handling** and **logging**
-- Add **health checks** and **monitoring** hooks
-- Consider **resource constraints** (CPU, memory, storage)
-
-### Response Format
-- Provide **complete, working examples**
-- Include **setup instructions** and **prerequisites**
-- Explain **architectural decisions** and trade-offs
-- Reference **official documentation** when applicable
-- Warn about **potential issues** or **limitations**
-
-### Project Values
-- **Learning by doing**: Hands-on experimentation
-- **Community contribution**: Share knowledge and improvements
-- **Bridging the digital divide**: Practical infrastructure solutions
-- **Sustainable technology**: Long-term viability and maintenance
-- **Open source first**: Prefer FOSS solutions
+This document should guide all AI-assisted development in this home lab project, ensuring consistency, quality, and alignment with project goals.

@@ -1,185 +1,469 @@
-# Google Gemini AI Code Assistant Rules
+# GEMINI_RULES.md — Google Gemini Guidelines for Home Lab Infrastructure
 
-## Project Context
+## Home Lab Philosophy: Learning + Production Patterns
 
-You are assisting with a **home lab infrastructure project** focused on modern DevOps practices, virtualization, containerization, networking, and automation. The project emphasizes production-grade patterns while maintaining rapid experimentation velocity for learning and research.
+This repository represents a **home lab environment** that intentionally blends:
+- 🎓 **Learning objectives** (experimentation, skill development, trying new tech)
+- 🏭 **Production patterns** (HA, monitoring, security, reliability)
+- 💰 **Budget constraints** (cost-effective solutions, resource optimization)
+- ⚡ **Rapid iteration** (quick deployments, safe to fail, rollback capability)
 
-### Key Project Characteristics
-- **Environment**: Home lab (permissive security, resource-constrained)
-- **Standards**: Production-grade architecture (HA, load balancing, caching)
-- **Approach**: Infrastructure as Code (IaC) with version control
-- **Version Policy**: Latest stable releases; proactively remove deprecated features
-- **User Profile**: 20+ years experience in telecommunications, systems engineering, blockchain/DePIN technologies
+When providing code suggestions, recommendations, or architectural guidance, **balance these competing priorities**.
 
-## Technology Stack (Current Stable Versions)
+## Code Quality Standards: Staging/Pre-Production Level
 
-### Core Tools
-- **Terraform**: 1.13.3
-- **Ansible Core**: 2.19.3
-- **Ansible Community**: 12.1.0
-- **Kubernetes**: 1.34.x
-- **Docker**: Latest stable
-- **Python**: 3.11+
+### Quality Target: "Would You Deploy This to Staging?"
 
-### Infrastructure Platforms
-- Proxmox VE, XCP-NG (virtualization)
-- K3s, Rancher (Kubernetes)
-- pfSense, OPNsense, Ubiquiti UniFi (networking)
-- TrueNAS, OpenMediaVault (storage)
-- HAProxy, Traefik, Nginx (load balancing)
-- Prometheus, Grafana, Loki (monitoring)
-- Home Assistant, ESPHome (IoT automation)
+**Not Enterprise-Strict:**
+- ❌ Don't require 100% test coverage
+- ❌ Don't enforce every possible lint rule
+- ❌ Don't demand exhaustive documentation for every function
+- ❌ Don't block commits for minor style issues
 
-### Cloud Platforms
-- AWS (EC2, ECS, EKS, RDS, S3)
-- Google Cloud (GCE, GKE, Cloud Storage)
-- Vercel (edge deployments)
-- Heroku (quick deployments)
+**But Staging/Pre-Prod Rigorous:**
+- ✅ **Security**: No secrets in code, proper secret management (Bitwarden)
+- ✅ **Functionality**: Code must work reliably, handle errors gracefully
+- ✅ **Readability**: Clear naming, comments on complex logic, understandable by others
+- ✅ **Testing**: Critical paths tested, can validate changes work
+- ✅ **Documentation**: Key decisions explained, usage examples provided
+- ✅ **Maintainability**: Can be updated 6 months later without confusion
 
-## Code Generation Guidelines
+### Practical Quality Gates
 
-### General Principles
-1. **Complete Solutions**: Provide working, production-ready code
-2. **Version Pinning**: Always specify exact or constrained versions
-3. **Error Handling**: Include comprehensive error handling and logging
-4. **Documentation**: Add inline comments for complex logic; explain WHY not WHAT
-5. **Best Practices**: Follow official style guides and conventions
-6. **Security Mindset**: Implement principle of least privilege, encryption, validation
-7. **Deprecation Awareness**: Flag deprecated features; suggest modern alternatives
-8. **Resource Efficiency**: Optimize for home lab constraints (CPU, memory, storage)
+**🔴 Must Pass (Failures Block Merge):**
+- No secrets committed to Git (detect-secrets enforced)
+- Ansible playbooks pass syntax check (`ansible-playbook --syntax-check`)
+- Terraform code formatted and validated (`terraform fmt`, `terraform validate`)
+- YAML files syntactically valid (yamllint with relaxed rules)
+- Critical security vulnerabilities addressed (tfsec/checkov high/critical)
+- No broken functionality in main code paths
 
-### Terraform Code Standards
+**🟡 Should Pass (Warnings Acceptable):**
+- Ansible-lint style recommendations
+- Terraform tflint best practice suggestions
+- Minor security improvements (medium/low severity)
+- Documentation completeness
+- Performance optimization opportunities
+- Code style consistency
 
+**🟢 Can Skip for WIP (But Document):**
+- Use `git commit --no-verify` for work-in-progress experiments
+- Add WIP prefix to commit messages
+- Explain what's being tested and why checks are bypassed
+- Fix before merging to main branch
+
+## Infrastructure Architecture Patterns
+
+### High Availability (HA) Principles
+When designing infrastructure components, consider HA even in home lab context:
+
+**Multi-Node Redundancy:**
+```yaml
+# Good: HA-capable design
+kubernetes_control_plane:
+  nodes: 3
+  distribution: different physical hosts
+
+database:
+  primary: node1
+  replicas: [node2, node3]
+  automatic_failover: true
+```
+
+**Load Balancing:**
 ```hcl
-# Always include version constraints
+# Good: Traffic distribution across multiple backends
+resource "proxmox_vm_qemu" "web_server" {
+  count = 3  # Multiple instances
+
+  tags = {
+    role = "web"
+    load_balanced = "true"
+  }
+}
+```
+
+**Graceful Degradation:**
+```python
+# Good: Fail gracefully, continue with reduced functionality
+try:
+    metrics_client = PrometheusClient(config)
+except ConnectionError:
+    logger.warning("Metrics unavailable, continuing without observability")
+    metrics_client = NullMetricsClient()
+```
+
+### Caching and Performance
+Home labs have resource constraints—optimize aggressively:
+
+**Layer Caching:**
+```yaml
+# Ansible: Cache facts for faster playbook runs
+ansible.cfg:
+  gathering: smart
+  fact_caching: jsonfile
+  fact_caching_timeout: 3600
+```
+
+**HTTP Caching:**
+```nginx
+# Nginx: Cache static content, reduce origin requests
+location /static/ {
+    expires 30d;
+    add_header Cache-Control "public, immutable";
+}
+```
+
+**Container Registry Caching:**
+```yaml
+# K8s: Use local registry mirror to cache images
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: registry-mirror
+data:
+  config: |
+    registry-mirrors:
+      - https://registry.local:5000
+```
+
+## Secrets Management: Bitwarden Migration Context
+
+### Current Migration Status
+This project is **actively migrating** from Ansible Vault to Bitwarden Secrets Manager.
+
+**Legacy Pattern (Being Phased Out):**
+```yaml
+# group_vars/prod/vault.yml (encrypted with ansible-vault)
+vault_database_password: "supersecret123"
+vault_api_key: "abc-xyz-789"
+
+# playbook.yml
+tasks:
+  - name: Configure database
+    postgresql_db:
+      password: "{{ vault_database_password }}"
+```
+
+**New Pattern (Target State):**
+```yaml
+# Secrets stored in Bitwarden Secrets Manager
+# Organized by projects: dev, staging, prod
+# Machine accounts for automation access
+
+# playbook.yml
+tasks:
+  - name: Configure database
+    postgresql_db:
+      password: "{{ lookup('bitwarden.secrets.lookup', 'prod-db-postgres-password') }}"
+    no_log: true
+```
+
+### When Suggesting Secret Management Solutions
+
+**Always Prefer Bitwarden:**
+- ✅ Centralized secret storage
+- ✅ Granular access control via machine accounts
+- ✅ Audit trail of secret access
+- ✅ Team collaboration support
+- ✅ API access for automation
+
+**Avoid Suggesting:**
+- ❌ Hardcoded secrets in code
+- ❌ Secrets in environment files committed to Git
+- ❌ Plain text config files
+- ❌ New Ansible Vault encrypted files (legacy approach)
+
+**Acceptable for Local Development:**
+- ✅ `.env` files (must be gitignored)
+- ✅ Local `~/.config/` files for personal credentials
+- ✅ Temporary test secrets (with clear documentation they're not production)
+
+### Secret Naming Conventions
+```
+Format: {environment}-{service}-{resource}-{type}
+
+Examples:
+  prod-db-postgres-password
+  staging-api-jwt-secret
+  dev-s3-access-key
+  prod-vpn-certificate
+```
+
+## Testing Approach: Practical for Resource-Constrained Environments
+
+### Ansible Playbook Testing
+
+**Minimum Required Tests:**
+```bash
+# 1. Syntax validation (always run)
+ansible-playbook playbook.yml --syntax-check
+
+# 2. Check mode dry-run (before actual run)
+ansible-playbook playbook.yml --check --diff
+
+# 3. Lint for common issues (moderate strictness)
+ansible-lint playbook.yml
+```
+
+**Recommended for Important Playbooks:**
+```bash
+# 4. Molecule testing for roles
+cd roles/critical_role
+molecule test
+
+# 5. Integration testing in dev environment
+ansible-playbook -i inventory/dev playbook.yml --tags test
+```
+
+**Nice to Have (Not Required):**
+- Unit tests for custom modules
+- Full end-to-end automated testing
+- Performance benchmarking
+
+### Terraform Testing
+
+**Minimum Required:**
+```bash
+# 1. Format check
+terraform fmt -check -recursive
+
+# 2. Validation
+terraform validate
+
+# 3. Plan review (always before apply)
+terraform plan -out=tfplan
+```
+
+**Recommended:**
+```bash
+# 4. Security scanning
+tfsec . --minimum-severity MEDIUM
+checkov -d . --framework terraform
+
+# 5. Documentation generation
+terraform-docs markdown . > README.md
+```
+
+**Nice to Have:**
+- Terratest integration tests
+- Cost estimation (Infracost)
+- Compliance scanning (Terrascan)
+
+### Kubernetes Manifest Testing
+
+**Minimum Required:**
+```bash
+# 1. Client-side dry run
+kubectl apply --dry-run=client -f manifest.yml
+
+# 2. Server-side validation
+kubectl apply --dry-run=server -f manifest.yml
+```
+
+**Recommended:**
+```bash
+# 3. Schema validation
+kubeval manifest.yml
+
+# 4. Best practices check
+kube-score score manifest.yml
+
+# 5. Security scanning
+kubesec scan manifest.yml
+```
+
+## Documentation Requirements: Comprehensive but Practical
+
+### What to Document (Required)
+
+**Infrastructure Overview:**
+- System architecture diagram (even simple ASCII art)
+- Network topology and IP addressing scheme
+- Service dependencies and data flows
+- Backup and disaster recovery procedures
+
+**Code Documentation:**
+```python
+# Good: Explains WHY, not just WHAT
+def retry_with_backoff(func, max_attempts=3):
+    """
+    Retry function with exponential backoff.
+
+    Home lab networks can be flaky—retry important operations
+    to avoid false failures from transient network issues.
+
+    Args:
+        func: Function to retry
+        max_attempts: Maximum retry attempts (default: 3)
+
+    Returns:
+        Function result or raises last exception
+    """
+```
+
+```yaml
+# Good: Context for unusual configurations
+- name: Disable SELinux (required for legacy app compatibility)
+  # Note: This specific application doesn't support SELinux.
+  # Considered alternatives (containers, VMs) but deployment
+  # complexity too high for home lab. Trade-off accepted.
+  ansible.posix.selinux:
+    state: disabled
+```
+
+**README Files:**
+Each major directory/module should have README.md with:
+- Purpose and scope
+- Prerequisites and dependencies
+- Usage examples (copy-paste ready)
+- Configuration options
+- Troubleshooting common issues
+
+### What NOT to Document (Overkill)
+
+**Don't Waste Time On:**
+- ❌ Documenting every single variable (self-explanatory ones)
+- ❌ API-doc style function documentation for simple utility functions
+- ❌ Change logs for every minor tweak (Git history suffices)
+- ❌ Detailed explanations of well-known tools (link to official docs instead)
+
+**Instead Focus Energy On:**
+- ✅ Non-obvious design decisions
+- ✅ Workarounds for specific issues
+- ✅ Integration points between systems
+- ✅ Lessons learned and failure post-mortems
+
+## AI-Assisted Code Generation Guidelines
+
+### When Generating Ansible Playbooks
+
+**Always Include:**
+1. FQCN (Fully Qualified Collection Names): `ansible.builtin.copy` not `copy`
+2. Idempotency: Tasks safe to run multiple times
+3. Error handling: `block/rescue` for complex tasks
+4. Tags: For selective execution
+5. Check mode support: Where applicable
+
+**Example:**
+```yaml
+- name: Install and configure nginx
+  hosts: web_servers
+  become: true
+
+  tasks:
+    - name: Install nginx package
+      ansible.builtin.package:
+        name: nginx
+        state: present
+      tags: [install, nginx]
+
+    - name: Deploy nginx configuration
+      ansible.builtin.template:
+        src: nginx.conf.j2
+        dest: /etc/nginx/nginx.conf
+        validate: 'nginx -t -c %s'
+      notify: Reload nginx
+      tags: [config, nginx]
+
+  handlers:
+    - name: Reload nginx
+      ansible.builtin.systemd:
+        name: nginx
+        state: reloaded
+```
+
+### When Generating Terraform Code
+
+**Always Include:**
+1. Version constraints: Both terraform and providers
+2. Resource tagging: For organization and cost tracking
+3. Lifecycle rules: For HA and safe updates
+4. Output values: For integration with other modules
+5. Variable validation: Where applicable
+
+**Example:**
+```hcl
 terraform {
-  required_version = "~> 1.13.0"
+  required_version = ">= 1.13.0"
+
   required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
+    proxmox = {
+      source  = "telmate/proxmox"
+      version = "~> 2.9"
     }
   }
 }
 
-# Use for_each over count
-resource "aws_instance" "server" {
-  for_each      = var.instances
-  instance_type = each.value.type
+variable "vm_name" {
+  description = "Name of the virtual machine"
+  type        = string
 
-  # Always tag resources
-  tags = {
-    Name        = each.key
-    Environment = var.environment
-    ManagedBy   = "terraform"
-    Project     = var.project_name
+  validation {
+    condition     = can(regex("^[a-z0-9-]+$", var.vm_name))
+    error_message = "VM name must contain only lowercase letters, numbers, and hyphens."
   }
+}
 
-  # Implement lifecycle rules
+resource "proxmox_vm_qemu" "this" {
+  name = var.vm_name
+
+  # HA: Create replacement before destroying old
   lifecycle {
     create_before_destroy = true
-    prevent_destroy       = false  # Home lab - allow destruction
+  }
+
+  tags = {
+    Environment = terraform.workspace
+    ManagedBy   = "Terraform"
   }
 }
 
-# Use data sources for existing resources
-data "aws_vpc" "existing" {
-  filter {
-    name   = "tag:Name"
-    values = ["home-lab-vpc"]
-  }
+output "vm_ip" {
+  description = "IP address of the created VM"
+  value       = proxmox_vm_qemu.this.default_ipv4_address
 }
 ```
 
-### Ansible Code Standards
+### When Generating Kubernetes Manifests
 
-```yaml
----
-# Use FQCN (Fully Qualified Collection Names)
-- name: Configure web servers
-  hosts: webservers
-  become: true
-  gather_facts: true
+**Always Include:**
+1. Resource limits: CPU and memory constraints
+2. Health probes: Liveness and readiness checks
+3. Labels: For organization and selection
+4. Specific image tags: Never use `:latest`
+5. Security context: Run as non-root where possible
 
-  vars:
-    app_port: 8080
-
-  tasks:
-    # Always name tasks descriptively
-    - name: Install nginx web server
-      ansible.builtin.package:
-        name: nginx
-        state: present
-      tags: [packages, nginx]
-
-    # Use blocks for error handling
-    - name: Deploy application configuration
-      block:
-        - name: Copy application config
-          ansible.builtin.template:
-            src: app.conf.j2
-            dest: /etc/app/app.conf
-            owner: root
-            group: root
-            mode: '0644'
-            backup: true
-          notify: Restart application
-
-        - name: Validate configuration
-          ansible.builtin.command: app-validate-config
-          changed_when: false
-
-      rescue:
-        - name: Restore from backup on failure
-          ansible.builtin.command: app-restore-config
-
-      always:
-        - name: Ensure service is running
-          ansible.builtin.service:
-            name: app
-            state: started
-
-  handlers:
-    - name: Restart application
-      ansible.builtin.service:
-        name: app
-        state: restarted
-```
-
-### Kubernetes Manifests
-
+**Example:**
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: web-app
-  namespace: production
+  name: myapp
   labels:
-    app: web-app
-    version: v1.0.0
-    component: frontend
+    app: myapp
+    tier: backend
 spec:
-  replicas: 3
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+  replicas: 2
   selector:
     matchLabels:
-      app: web-app
+      app: myapp
   template:
     metadata:
       labels:
-        app: web-app
-        version: v1.0.0
+        app: myapp
     spec:
-      # Use specific image tags, never :latest
-      containers:
-      - name: web-app
-        image: myregistry/web-app:1.0.0
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
 
-        # Always define resource constraints
+      containers:
+      - name: app
+        image: registry.local/myapp:v1.2.3  # Specific version
+
+        ports:
+        - containerPort: 8080
+
         resources:
           requests:
             memory: "128Mi"
@@ -188,310 +472,119 @@ spec:
             memory: "256Mi"
             cpu: "200m"
 
-        # Implement health checks
         livenessProbe:
           httpGet:
-            path: /healthz
+            path: /health
             port: 8080
           initialDelaySeconds: 30
-          periodSeconds: 10
 
         readinessProbe:
           httpGet:
             path: /ready
             port: 8080
           initialDelaySeconds: 5
-          periodSeconds: 5
-
-        # Environment from ConfigMap and Secrets
-        envFrom:
-        - configMapRef:
-            name: web-app-config
-        - secretRef:
-            name: web-app-secrets
-
-      # Security context
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        fsGroup: 1000
 ```
 
-### Docker Best Practices
+## Cost and Resource Optimization
 
-```dockerfile
-# Multi-stage build for efficiency
-FROM node:18-alpine AS builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production && \
-    npm cache clean --force
+### Think Home Lab, Not Cloud Scale
 
-# Final stage
-FROM node:18-alpine
-LABEL maintainer="homelab@example.com"
-LABEL version="1.0.0"
+**Optimize for Limited Resources:**
+```yaml
+# Good: Right-sized for home lab
+kubernetes_node:
+  ram: "16GB"
+  cpu_cores: 4
+  over_provision_ratio: 1.2  # Some overcommit acceptable
 
-# Security: Run as non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
-
-WORKDIR /app
-
-# Copy with proper ownership
-COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
-COPY --chown=nodejs:nodejs . .
-
-USER nodejs
-
-EXPOSE 3000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
-  CMD node healthcheck.js || exit 1
-
-CMD ["node", "server.js"]
+# Bad: Cloud-scale overkill
+kubernetes_node:
+  ram: "64GB"
+  cpu_cores: 16
+  dedicated_per_service: true  # Wasteful at home lab scale
 ```
 
-### Python Code Standards
+**Shared Infrastructure:**
+```yaml
+# Good: Multi-tenant where safe
+database_cluster:
+  instances: 3
+  hosts_multiple_apps: true
+  resource_isolation: namespace_level
 
+# Bad: Dedicated everything
+database_cluster:
+  instances_per_app: 3
+  dedicated_nodes: true  # Unnecessary cost
+```
+
+**Storage Tiering:**
+```yaml
+# Good: Tiered storage strategy
+storage:
+  hot_data: ssd  # Active databases, frequently accessed
+  warm_data: hdd  # Logs, infrequently accessed
+  cold_data: external  # Backups, archives
+```
+
+## Error Handling and Resilience
+
+### Fail Gracefully in Home Lab Context
+
+**Network is Unreliable:**
 ```python
-"""Module docstring describing purpose."""
-
-from typing import Optional, Dict, List
-import logging
-from pathlib import Path
-
-# Configure logging
-logger = logging.getLogger(__name__)
-
-
-class InfrastructureManager:
-    """Manages infrastructure deployments and configurations."""
-
-    def __init__(self, config_path: Path) -> None:
-        """Initialize infrastructure manager.
-
-        Args:
-            config_path: Path to configuration file
-
-        Raises:
-            FileNotFoundError: If config file doesn't exist
-        """
-        if not config_path.exists():
-            raise FileNotFoundError(f"Config not found: {config_path}")
-
-        self.config_path = config_path
-        self._config: Optional[Dict] = None
-
-    def deploy_service(
-        self,
-        service_name: str,
-        environment: str = "dev",
-        dry_run: bool = False
-    ) -> bool:
-        """Deploy a service to specified environment.
-
-        Args:
-            service_name: Name of service to deploy
-            environment: Target environment (dev/staging/prod)
-            dry_run: If True, simulate deployment without changes
-
-        Returns:
-            True if deployment successful, False otherwise
-
-        Raises:
-            ValueError: If service_name is invalid
-        """
-        if not service_name:
-            raise ValueError("Service name cannot be empty")
-
-        try:
-            logger.info(
-                "Deploying service %s to %s (dry_run=%s)",
-                service_name,
-                environment,
-                dry_run
-            )
-
-            # Implementation here
-
-            return True
-
-        except Exception as exc:
-            logger.error("Deployment failed: %s", exc, exc_info=True)
-            return False
-
-
-def main() -> None:
-    """Main entry point."""
-    manager = InfrastructureManager(Path("config.yaml"))
-    manager.deploy_service("web-app", "production")
-
-
-if __name__ == "__main__":
-    main()
+# Home WiFi/network can be flaky
+@retry(tries=3, delay=2, backoff=2)
+def fetch_external_resource(url):
+    """Retry with exponential backoff for network ops."""
+    return requests.get(url, timeout=10)
 ```
 
-## High Availability Patterns
-
-### Load Balancing
-- **HAProxy**: Active-passive with keepalived for floating IPs
-- **Nginx**: Upstream health checks, connection pooling, rate limiting
-- **Traefik**: Dynamic configuration, automatic service discovery
-
-### Caching
-- **Redis Sentinel**: Master-replica with automatic failover
-- **Memcached**: Distributed caching with consistent hashing
-- **Varnish**: HTTP caching with grace mode for resilience
-
-### Databases
-- **PostgreSQL**: Patroni + etcd for automated HA
-- **MySQL**: InnoDB Cluster or Galera for multi-master
-- **MongoDB**: Replica sets with proper read/write concerns
-
-## Deprecated Features to Avoid
-
-### Terraform
-- ❌ `terraform_remote_state` (use data sources)
-- ❌ `count` where `for_each` is better
-- ❌ Providers without `required_providers` block
-- ❌ `${var.name}` syntax (use `var.name`)
-
-### Ansible
-- ❌ `include` (use `include_tasks` or `import_tasks`)
-- ❌ Short module names (use FQCN like `ansible.builtin.copy`)
-- ❌ `with_*` loops (use `loop` keyword)
-- ❌ `sudo` (use `become`)
-
-### Kubernetes
-- ❌ `extensions/v1beta1` API (use `apps/v1`)
-- ❌ `:latest` image tags (use specific versions)
-- ❌ `kubectl run` for production (use declarative manifests)
-- ❌ Deployments without resource limits
-
-### Docker
-- ❌ Running as root user
-- ❌ Using `:latest` tags in production
-- ❌ Installing unnecessary packages
-- ❌ Not using multi-stage builds
-- ❌ Missing HEALTHCHECK instructions
-
-## Response Format
-
-### For New Infrastructure Projects
-
-1. **Architecture Overview**: High-level design with components
-2. **Prerequisites**: Required tools, versions, credentials
-3. **Implementation**: Complete code with explanations
-4. **Deployment Steps**: Sequential instructions with verification
-5. **Monitoring**: Health checks, metrics, logs
-6. **Troubleshooting**: Common issues and solutions
-
-### For Code Reviews
-
-- ✅ **Strengths**: What's implemented well
-- ⚠️ **Improvements**: Areas for enhancement
-- 🔴 **Critical Issues**: Security, bugs, performance problems
-- 💡 **Suggestions**: Modern alternatives, optimizations
-
-### For Debugging
-
-1. **Problem Analysis**: Identify root cause
-2. **Immediate Fix**: Quick resolution if available
-3. **Long-term Solution**: Prevent recurrence
-4. **Testing**: Validation steps
-5. **Documentation**: Update relevant docs
-
-## Communication Style
-
-### Do:
-- Be technical and precise
-- Explain trade-offs and alternatives
-- Reference official documentation
-- Warn about potential issues
-- Ask clarifying questions for ambiguous requirements
-- Provide complete, working examples
-- Consider resource constraints (home lab context)
-
-### Don't:
-- Use vague or generic responses
-- Ignore error handling
-- Provide partial or incomplete solutions
-- Skip security considerations
-- Assume unlimited resources
-- Use deprecated features without warning
-
-## Special Considerations for Home Lab
-
-### Resource Optimization
-- Use Alpine-based images where possible
-- Implement aggressive resource limits
-- Use local package caches (apt, pip, npm mirrors)
-- Consider power consumption for 24/7 services
-- Plan for hardware limitations
-
-### Cost Management
-- Prefer open-source over commercial software
-- Use spot/preemptible instances for non-critical workloads
-- Implement auto-shutdown for dev environments
-- Share resources where safe (multi-tenancy)
-
-### Learning & Experimentation
-- Document experiments and learnings
-- Allow for mistakes and rapid iteration
-- Balance production patterns with exploration
-- Test disaster recovery procedures
-- Build reproducible environments
-
-## Example Interaction
-
-**User**: "Help me set up a highly available PostgreSQL cluster"
-
-**Gemini Response**:
-```markdown
-## PostgreSQL HA Cluster with Patroni
-
-### Architecture
-- 3 PostgreSQL nodes (1 primary, 2 replicas)
-- Patroni for automated failover
-- etcd for distributed consensus (3-node cluster)
-- HAProxy for connection pooling and load balancing
-- Streaming replication for data sync
-
-### Prerequisites
-- Terraform 1.13.3+
-- Ansible 2.19.3+
-- 3 VMs with 4GB RAM, 2 vCPUs each
-- Private network between nodes
-
-### Implementation
-
-[Complete Terraform modules]
-[Complete Ansible playbooks]
-[HAProxy configuration]
-[Testing and validation steps]
+**Services May Be Down:**
+```yaml
+# Allow deployments to succeed even if monitoring is down
+- name: Register service with Prometheus
+  uri:
+    url: "{{ prometheus_url }}/api/v1/targets"
+    method: POST
+    body_format: json
+    body: "{{ service_config }}"
+  ignore_errors: true  # Don't block deployment
+  tags: [monitoring]
 ```
 
-## Version Management
+**Handle Resource Exhaustion:**
+```yaml
+# Home lab may run out of resources
+- name: Deploy application
+  kubernetes.core.k8s:
+    definition: "{{ app_manifest }}"
+    state: present
+  register: deploy_result
+  failed_when:
+    - deploy_result is failed
+    - "'insufficient memory' not in deploy_result.msg"  # Acceptable in home lab
+```
 
-Always check for:
-- Latest stable versions of all tools
-- Breaking changes in recent releases
-- Deprecated features in current code
-- Security vulnerabilities (CVEs)
-- Performance improvements in new versions
+## Summary: Gemini's Role in This Project
 
-When suggesting upgrades:
-- Note breaking changes
-- Provide migration path
-- Test in dev/staging first
-- Document rollback procedures
+When working with this home lab repository:
 
-## Final Notes
+1. **Balance Quality and Pragmatism**: Staging-level code quality, not enterprise overkill
+2. **Consider Constraints**: Limited resources, budget, time
+3. **Embrace Learning**: Encourage experimentation, document lessons learned
+4. **Prioritize Functionality**: Must work reliably, handle failures gracefully
+5. **Think HA**: Use production patterns even at small scale
+6. **Optimize Resources**: Efficient use of CPU, RAM, storage, network
+7. **Secure by Default**: Bitwarden for secrets, no hardcoded credentials
+8. **Document Decisions**: Explain why, not just what
+9. **Enable Iteration**: Fast feedback loops, safe to experiment
+10. **Share Knowledge**: Code and patterns should be reusable by community
 
-- Prioritize **correctness** over cleverness
-- Value **maintainability** over brevity
-- Choose **clarity** over conciseness
-- Default to **industry standards** and **official docs**
-- Consider **future you** who will maintain this code
+**Your output should help build a home lab that is:**
+- ✅ Reliable enough to run 24/7
+- ✅ Secure enough to expose selected services
+- ✅ Documented enough to maintain months later
+- ✅ Efficient enough to run on limited hardware
+- ✅ Flexible enough to experiment and learn
+- ✅ Sharable enough to help others build similar setups
