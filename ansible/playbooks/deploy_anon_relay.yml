@@ -1,0 +1,410 @@
+---
+# Ansible Playbook: Deploy Anyone Protocol Relay via Docker
+# Description: Installs and configures an Anyone Protocol (anon) relay using Docker
+# Documentation: https://docs.anyone.io/relay/start/install-anon-on-linux/docker
+# Author: Home Lab Infrastructure Team
+# Version: 1.0.0
+
+- name: Deploy Anyone Protocol Relay via Docker
+  hosts: anon_relay
+  become: true
+  vars_files:
+    - ../group_vars/anon_relay/vars.yml
+
+  pre_tasks:
+    - name: Update apt cache (Debian/Ubuntu)
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+      tags:
+        - setup
+        - docker
+
+    - name: Gather package facts
+      ansible.builtin.package_facts:
+        manager: auto
+      tags:
+        - setup
+        - docker
+
+  tasks:
+    # ========================================
+    # Docker Installation
+    # ========================================
+    - name: Install Docker prerequisites (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - curl
+          - gnupg
+        state: present
+      when: ansible_os_family == "Debian"
+      tags:
+        - setup
+        - docker
+
+    - name: Install Docker prerequisites (Fedora)
+      ansible.builtin.dnf:
+        name:
+          - dnf-plugins-core
+        state: present
+      when: ansible_os_family == "RedHat"
+      tags:
+        - setup
+        - docker
+
+    - name: Create Docker GPG keyrings directory (Debian/Ubuntu)
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+      when: ansible_os_family == "Debian"
+      tags:
+        - setup
+        - docker
+
+    - name: Add Docker GPG key (Debian/Ubuntu)
+      ansible.builtin.apt_key:
+        url: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
+        keyring: /etc/apt/keyrings/docker.gpg
+        state: present
+      when: ansible_os_family == "Debian"
+      tags:
+        - setup
+        - docker
+
+    - name: Add Docker repository (Debian/Ubuntu)
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [arch={{ ansible_architecture }} signed-by=/etc/apt/keyrings/docker.gpg]
+          https://download.docker.com/linux/{{ ansible_distribution | lower }}
+          {{ ansible_distribution_release }} stable
+        state: present
+        filename: docker
+      when: ansible_os_family == "Debian"
+      tags:
+        - setup
+        - docker
+
+    - name: Add Docker repository (Fedora)
+      ansible.builtin.command:
+        cmd: dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
+      args:
+        creates: /etc/yum.repos.d/docker-ce.repo
+      when: ansible_os_family == "RedHat"
+      tags:
+        - setup
+        - docker
+
+    - name: Install Docker packages (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+      when: ansible_os_family == "Debian"
+      tags:
+        - setup
+        - docker
+
+    - name: Install Docker packages (Fedora)
+      ansible.builtin.dnf:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+      when: ansible_os_family == "RedHat"
+      tags:
+        - setup
+        - docker
+
+    - name: Enable and start Docker service
+      ansible.builtin.systemd:
+        name: docker
+        enabled: true
+        state: started
+      tags:
+        - setup
+        - docker
+
+    # ========================================
+    # Directory Structure and Permissions
+    # ========================================
+    - name: Create anon relay directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /opt/compose-files
+        - /opt/anon/etc/anon
+        - /opt/anon/var/lib/anon
+        - /opt/anon/run/anon
+        - /root/.nyx
+      tags:
+        - setup
+        - directories
+
+    - name: Set restrictive permissions on run directory
+      ansible.builtin.file:
+        path: /opt/anon/run/anon
+        state: directory
+        mode: '0700'
+        owner: '100'
+        group: '101'
+        recurse: true
+      tags:
+        - setup
+        - directories
+
+    - name: Create notices.log file
+      ansible.builtin.file:
+        path: /opt/anon/etc/anon/notices.log
+        state: touch
+        mode: '0644'
+        owner: '100'
+        group: '101'
+        modification_time: preserve
+        access_time: preserve
+      tags:
+        - setup
+        - directories
+
+    - name: Create anond system user
+      ansible.builtin.user:
+        name: anond
+        system: true
+        create_home: false
+        shell: /usr/sbin/nologin
+        state: present
+      tags:
+        - setup
+        - users
+
+    # ========================================
+    # Firewall Configuration
+    # ========================================
+    - name: Install UFW firewall (Debian/Ubuntu)
+      ansible.builtin.apt:
+        name: ufw
+        state: present
+      when:
+        - ansible_os_family == "Debian"
+        - anon_relay_configure_firewall | bool
+      tags:
+        - setup
+        - firewall
+
+    - name: Allow SSH through firewall
+      community.general.ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+        comment: 'Allow SSH'
+      when: anon_relay_configure_firewall | bool
+      tags:
+        - setup
+        - firewall
+
+    - name: Allow anon ORPort through firewall
+      community.general.ufw:
+        rule: allow
+        port: "{{ anon_relay_or_port }}"
+        proto: any
+        comment: 'Anyone Protocol ORPort'
+      when: anon_relay_configure_firewall | bool
+      tags:
+        - setup
+        - firewall
+
+    - name: Enable UFW firewall
+      community.general.ufw:
+        state: enabled
+      when: anon_relay_configure_firewall | bool
+      tags:
+        - setup
+        - firewall
+
+    # ========================================
+    # Configuration Files
+    # ========================================
+    - name: Download relay docker-compose file
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/anyone-protocol/anon-install/refs/heads/main/docker/anon-relay/relay.yaml
+        dest: /opt/compose-files/relay.yaml
+        mode: '0644'
+        owner: root
+        group: root
+      when: not anon_relay_use_custom_compose
+      tags:
+        - config
+        - docker-compose
+
+    - name: Template custom anonrc configuration
+      ansible.builtin.template:
+        src: ../templates/anon_relay/anonrc.j2
+        dest: /opt/anon/etc/anon/anonrc
+        mode: '0644'
+        owner: root
+        group: root
+      when: anon_relay_use_custom_config | bool
+      notify: Restart anon relay
+      tags:
+        - config
+
+    - name: Download default anonrc configuration
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/anyone-protocol/anon-install/refs/heads/main/docker/anon-relay/anonrc
+        dest: /opt/anon/etc/anon/anonrc
+        mode: '0644'
+        owner: root
+        group: root
+      when: not anon_relay_use_custom_config | bool
+      notify: Restart anon relay
+      tags:
+        - config
+
+    - name: Configure relay nickname in anonrc
+      ansible.builtin.lineinfile:
+        path: /opt/anon/etc/anon/anonrc
+        regexp: '^Nickname\s+'
+        line: "Nickname {{ anon_relay_nickname }}"
+        state: present
+      when: not anon_relay_use_custom_config | bool
+      notify: Restart anon relay
+      tags:
+        - config
+
+    - name: Configure relay contact info in anonrc
+      ansible.builtin.lineinfile:
+        path: /opt/anon/etc/anon/anonrc
+        regexp: '^ContactInfo\s+'
+        line: "ContactInfo {{ anon_relay_contact_info }}"
+        state: present
+      when: not anon_relay_use_custom_config | bool
+      notify: Restart anon relay
+      tags:
+        - config
+
+    - name: Configure ORPort in anonrc
+      ansible.builtin.lineinfile:
+        path: /opt/anon/etc/anon/anonrc
+        regexp: '^ORPort\s+'
+        line: "ORPort {{ anon_relay_or_port }}{% if anon_relay_ipv4_only %} IPv4Only{% endif %}"
+        state: present
+      when: not anon_relay_use_custom_config | bool
+      notify: Restart anon relay
+      tags:
+        - config
+
+    - name: Disable IPv6 if configured
+      ansible.builtin.lineinfile:
+        path: /opt/anon/etc/anon/anonrc
+        line: "AddressDisableIPv6"
+        state: present
+      when:
+        - not anon_relay_use_custom_config | bool
+        - anon_relay_ipv4_only | bool
+      notify: Restart anon relay
+      tags:
+        - config
+
+    - name: Configure MyFamily if multiple relays
+      ansible.builtin.lineinfile:
+        path: /opt/anon/etc/anon/anonrc
+        regexp: '^MyFamily\s+'
+        line: "MyFamily {{ anon_relay_my_family | join(',') }}"
+        state: present
+      when:
+        - not anon_relay_use_custom_config | bool
+        - anon_relay_my_family is defined
+        - anon_relay_my_family | length > 0
+      notify: Restart anon relay
+      tags:
+        - config
+
+    - name: Download nyx config
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/anyone-protocol/anon-install/refs/heads/main/docker/anon-relay/config
+        dest: /root/.nyx/config
+        mode: '0644'
+        owner: root
+        group: root
+      tags:
+        - config
+
+    # ========================================
+    # Container Deployment
+    # ========================================
+    - name: Deploy anon relay container
+      community.docker.docker_compose_v2:
+        project_src: /opt/compose-files
+        files:
+          - relay.yaml
+        state: present
+        pull: "{{ anon_relay_pull_latest | ternary('always', 'policy') }}"
+      register: anon_relay_deployment
+      tags:
+        - deploy
+
+    - name: Wait for relay to start
+      ansible.builtin.wait_for:
+        timeout: 10
+      when: anon_relay_deployment.changed
+      tags:
+        - deploy
+
+    - name: Check relay container status
+      community.docker.docker_container_info:
+        name: anon-relay
+      register: anon_relay_status
+      tags:
+        - deploy
+        - verify
+
+    - name: Display relay container status
+      ansible.builtin.debug:
+        msg: "Anon relay container is {{ anon_relay_status.container.State.Status }}"
+      tags:
+        - deploy
+        - verify
+
+  handlers:
+    - name: Restart anon relay
+      community.docker.docker_compose_v2:
+        project_src: /opt/compose-files
+        files:
+          - relay.yaml
+        state: restarted
+      when: anon_relay_auto_restart | bool
+
+  post_tasks:
+    - name: Display relay information
+      ansible.builtin.debug:
+        msg:
+          - "================================================"
+          - "Anyone Protocol Relay Deployed Successfully"
+          - "================================================"
+          - "Relay Nickname: {{ anon_relay_nickname }}"
+          - "ORPort: {{ anon_relay_or_port }}"
+          - "Contact: {{ anon_relay_contact_info }}"
+          - ""
+          - "Next Steps:"
+          - "1. Configure port forwarding on your router for port {{ anon_relay_or_port }}"
+          - "2. Verify port is open: https://canyouseeme.org"
+          - "3. Monitor logs: docker logs -f anon-relay"
+          - "4. Check relay status at: https://metrics.torproject.org/rs.html"
+          - ""
+          - "Configuration: /opt/anon/etc/anon/anonrc"
+          - "Logs: /opt/anon/etc/anon/notices.log"
+          - "================================================"
+      tags:
+        - always

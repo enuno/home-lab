@@ -1,0 +1,94 @@
+---
+# Anyone Protocol Relay Variables
+# Documentation: https://docs.anyone.io/relay/
+
+# ========================================
+# Relay Identity Configuration
+# ========================================
+
+# Relay nickname (alphanumeric, max 19 characters)
+anon_relay_nickname: "MyRelayNickname"
+
+# Contact information (email, Telegram ID, or other contact method)
+# Required by Anyone Protocol standards
+anon_relay_contact_info: "<your-email@example.com>"
+
+# MyFamily configuration (list of relay fingerprints if you operate multiple relays)
+# Example: ["$fingerprint1", "$fingerprint2"]
+# Leave empty if running a single relay
+anon_relay_my_family: []
+
+# ========================================
+# Network Configuration
+# ========================================
+
+# ORPort (Onion Router Port) for relay connections
+# Default: 9001
+# You must configure port forwarding on your router for this port
+anon_relay_or_port: 9001
+
+# IPv4 only mode (disable IPv6)
+# Set to true if your ISP doesn't provide IPv6
+anon_relay_ipv4_only: false
+
+# ========================================
+# Firewall Configuration
+# ========================================
+
+# Configure UFW firewall automatically
+# Set to false if you manage firewall rules manually
+anon_relay_configure_firewall: true
+
+# ========================================
+# Docker Configuration
+# ========================================
+
+# Pull latest image on deployment
+# Set to true to always pull the latest version
+anon_relay_pull_latest: true
+
+# Use custom docker-compose file
+# Set to true if you want to provide your own compose file
+anon_relay_use_custom_compose: false
+
+# Use custom anonrc configuration template
+# Set to true to use the Jinja2 template instead of downloading from GitHub
+anon_relay_use_custom_config: false
+
+# Auto-restart relay on configuration changes
+anon_relay_auto_restart: true
+
+# ========================================
+# Relay Operational Settings (Advanced)
+# ========================================
+
+# Bandwidth rate limit in KB/s
+# Minimum recommended: 75 KB/s
+# Leave commented to use unlimited bandwidth
+# anon_relay_bandwidth_rate: 1024
+
+# Bandwidth burst limit in KB/s
+# Should be higher than bandwidth_rate
+# anon_relay_bandwidth_burst: 2048
+
+# Exit relay configuration
+# WARNING: Running an exit relay has legal implications
+# Only enable if you understand the responsibilities
+anon_relay_exit_policy: false
+
+# Relay flags (uncomment to customize)
+# anon_relay_extra_config:
+#   - "RelayBandwidthRate 1000 KBytes"
+#   - "RelayBandwidthBurst 2000 KBytes"
+#   - "AccountingMax 100 GBytes"
+#   - "AccountingStart month 1 00:00"
+
+# ========================================
+# Monitoring and Logging
+# ========================================
+
+# Log level: debug, info, notice, warn, err
+anon_relay_log_level: "notice"
+
+# Enable syslog logging
+anon_relay_syslog_enabled: false
