@@ -1,0 +1,22 @@
+---
+# Docker Compose Configuration for Anyone Protocol Relay
+# Auto-generated from Ansible playbook
+# Architecture: {{ ansible_architecture }}
+
+services:
+  relay:
+    image: {{ anon_relay_image | default('ghcr.io/anyone-protocol/ator-protocol') }}:{{ anon_relay_image_tag | default('latest') }}
+    container_name: anon-relay
+    init: true
+    restart: unless-stopped
+{% if ansible_architecture in ['x86_64', 'amd64'] %}
+    platform: linux/amd64
+{% elif ansible_architecture in ['aarch64', 'arm64'] %}
+    platform: linux/arm64
+{% endif %}
+    ports:
+      - "{{ anon_relay_or_port }}:{{ anon_relay_or_port }}"
+    volumes:
+      - /opt/anon/var/lib/anon/:/var/lib/anon/
+      - /opt/anon/etc/anon/:/etc/anon/
+      - /opt/anon/run/anon/:/run/anon/  # Optional, only if NYX will be used

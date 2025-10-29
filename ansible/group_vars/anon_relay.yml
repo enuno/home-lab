@@ -43,6 +43,15 @@ anon_relay_configure_firewall: true
 # Docker Configuration
 # ========================================
 
+# Docker image repository
+# Default: ghcr.io/anyone-protocol/ator-protocol
+anon_relay_image: "ghcr.io/anyone-protocol/ator-protocol"
+
+# Docker image tag
+# Default: latest
+# Recommended: Pin to specific version for production (e.g., "0.4.9.11")
+anon_relay_image_tag: "latest"
+
 # Pull latest image on deployment
 # Set to true to always pull the latest version
 anon_relay_pull_latest: true

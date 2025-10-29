@@ -28,6 +28,22 @@
         - setup
         - docker
 
+    - name: Check if Docker is already installed
+      ansible.builtin.set_fact:
+        docker_installed: "{{ 'docker-ce' in ansible_facts.packages or 'docker.io' in ansible_facts.packages }}"
+      tags:
+        - setup
+        - docker
+
+    - name: Display Docker installation status
+      ansible.builtin.debug:
+        msg: >-
+          Docker is {{ docker_installed | ternary('already installed', 'not installed') }},
+          {{ docker_installed | ternary('skipping', 'proceeding with') }} installation tasks
+      tags:
+        - setup
+        - docker
+
   tasks:
     # ========================================
     # Docker Installation
@@ -39,7 +55,9 @@
           - curl
           - gnupg
         state: present
-      when: ansible_os_family == "Debian"
+      when:
+        - ansible_os_family == "Debian"
+        - not docker_installed | bool
       tags:
         - setup
         - docker
@@ -49,7 +67,9 @@
         name:
           - dnf-plugins-core
         state: present
-      when: ansible_os_family == "RedHat"
+      when:
+        - ansible_os_family == "RedHat"
+        - not docker_installed | bool
       tags:
         - setup
         - docker
@@ -59,17 +79,48 @@
         path: /etc/apt/keyrings
         state: directory
         mode: '0755'
-      when: ansible_os_family == "Debian"
+      when:
+        - ansible_os_family == "Debian"
+        - not docker_installed | bool
       tags:
         - setup
         - docker
 
-    - name: Add Docker GPG key (Debian/Ubuntu)
-      ansible.builtin.apt_key:
+    - name: Check for existing Docker GPG keys (Debian/Ubuntu)
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - /etc/apt/keyrings/docker.gpg
+        - /etc/apt/keyrings/docker.asc
+      register: docker_gpg_check
+      when:
+        - ansible_os_family == "Debian"
+        - not docker_installed | bool
+      tags:
+        - setup
+        - docker
+
+    - name: Download Docker GPG key (Debian/Ubuntu)
+      ansible.builtin.get_url:
         url: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
-        keyring: /etc/apt/keyrings/docker.gpg
-        state: present
-      when: ansible_os_family == "Debian"
+        dest: /etc/apt/keyrings/docker.asc
+        mode: '0644'
+      when:
+        - ansible_os_family == "Debian"
+        - not docker_installed | bool
+        - not docker_gpg_check.results[0].stat.exists
+        - not docker_gpg_check.results[1].stat.exists
+      tags:
+        - setup
+        - docker
+
+    - name: Dearmor Docker GPG key (Debian/Ubuntu)
+      ansible.builtin.shell:
+        cmd: gpg --dearmor < /etc/apt/keyrings/docker.asc > /etc/apt/keyrings/docker.gpg
+        creates: /etc/apt/keyrings/docker.gpg
+      when:
+        - ansible_os_family == "Debian"
+        - not docker_installed | bool
       tags:
         - setup
         - docker
@@ -82,7 +133,9 @@
           {{ ansible_distribution_release }} stable
         state: present
         filename: docker
-      when: ansible_os_family == "Debian"
+      when:
+        - ansible_os_family == "Debian"
+        - not docker_installed | bool
       tags:
         - setup
         - docker
@@ -92,7 +145,9 @@
         cmd: dnf config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
       args:
         creates: /etc/yum.repos.d/docker-ce.repo
-      when: ansible_os_family == "RedHat"
+      when:
+        - ansible_os_family == "RedHat"
+        - not docker_installed | bool
       tags:
         - setup
         - docker
@@ -107,7 +162,9 @@
           - docker-compose-plugin
         state: present
         update_cache: true
-      when: ansible_os_family == "Debian"
+      when:
+        - ansible_os_family == "Debian"
+        - not docker_installed | bool
       tags:
         - setup
         - docker
@@ -121,7 +178,9 @@
           - docker-buildx-plugin
           - docker-compose-plugin
         state: present
-      when: ansible_os_family == "RedHat"
+      when:
+        - ansible_os_family == "RedHat"
+        - not docker_installed | bool
       tags:
         - setup
         - docker
@@ -236,14 +295,25 @@
     # ========================================
     # Configuration Files
     # ========================================
-    - name: Download relay docker-compose file
-      ansible.builtin.get_url:
-        url: https://raw.githubusercontent.com/anyone-protocol/anon-install/refs/heads/main/docker/anon-relay/relay.yaml
+    - name: Template relay docker-compose file with platform specification
+      ansible.builtin.template:
+        src: ../templates/anon_relay/relay.yaml.j2
         dest: /opt/compose-files/relay.yaml
         mode: '0644'
         owner: root
         group: root
-      when: not anon_relay_use_custom_compose
+      tags:
+        - config
+        - docker-compose
+
+    - name: Download relay docker-compose file (fallback for custom mode)
+      ansible.builtin.get_url:
+        url: https://raw.githubusercontent.com/anyone-protocol/anon-install/refs/heads/main/docker/anon-relay/relay.yaml
+        dest: /opt/compose-files/relay.yaml.original
+        mode: '0644'
+        owner: root
+        group: root
+      when: anon_relay_use_custom_compose | bool
       tags:
         - config
         - docker-compose
@@ -344,6 +414,21 @@
     # ========================================
     # Container Deployment
     # ========================================
+    - name: Set platform variable based on architecture
+      ansible.builtin.set_fact:
+        docker_platform: "{{ 'linux/amd64' if ansible_architecture in ['x86_64', 'amd64'] else 'linux/arm64' }}"
+      tags:
+        - deploy
+
+    - name: Pull anon relay Docker image with correct platform
+      community.docker.docker_image_pull:
+        name: "{{ anon_relay_image | default('ghcr.io/anyone-protocol/ator-protocol') }}"
+        tag: "{{ anon_relay_image_tag | default('latest') }}"
+        platform: "{{ docker_platform }}"
+      tags:
+        - deploy
+        - image-pull
+
     - name: Deploy anon relay container
       community.docker.docker_compose_v2:
         project_src: /opt/compose-files
