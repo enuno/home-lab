@@ -7,11 +7,11 @@
 # ========================================
 
 # Relay nickname (alphanumeric, max 19 characters)
-anon_relay_nickname: "MyRelayNickname"
+anon_relay_nickname: "relay01.hashgrid.net"
 
 # Contact information (email, Telegram ID, or other contact method)
 # Required by Anyone Protocol standards
-anon_relay_contact_info: "<your-email@example.com>"
+anon_relay_contact_info: "operator@hashgrid.net"
 
 # MyFamily configuration (list of relay fingerprints if you operate multiple relays)
 # Example: ["$fingerprint1", "$fingerprint2"]

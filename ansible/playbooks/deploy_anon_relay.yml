@@ -9,7 +9,7 @@
   hosts: anon_relay
   become: true
   vars_files:
-    - ../group_vars/anon_relay/vars.yml
+    - ../group_vars/anon_relay.yml
 
   pre_tasks:
     - name: Update apt cache (Debian/Ubuntu)
