@@ -201,6 +201,8 @@ kubectl get pods -A
 
 Ansible Vault encrypts sensitive data like passwords, API keys, and tokens.
 
+**NOTE**: This project is migrating from Ansible Vault to Bitwarden Secrets Manager for centralized secret management. See [SECRETS_MIGRATION.md](./SECRETS_MIGRATION.md) for the complete migration guide.
+
 ### Creating Vault Password File
 
 ```bash
