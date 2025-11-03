@@ -7,8 +7,8 @@ kubeconfig/*.yaml
 kubeconfig/*.yml
 
 # Ansible vault encrypted files
-group_vars/pihole_vault.yml
-group_vars/rancher_vault.yml
+group_vars/*_vault.yml
+host_vars/*_vault.yml
 
 # Ansible retry files
 *.retry

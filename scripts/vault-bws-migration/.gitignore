@@ -1,0 +1,41 @@
+# Vault to Bitwarden Migration Artifacts
+# These files may contain sensitive information or are temporary
+
+# Migration output directory
+migration-output/
+
+# Mapping files (contain secret IDs and source locations)
+secret-mapping-*.csv
+secret-mapping-*.json
+
+# Migration reports
+migration-report-*.txt
+
+# Error logs
+errors-*.log
+
+# Temporary decrypted files (should never be created, but just in case)
+*.decrypted.yml
+*.decrypted.yaml
+*_decrypted.yml
+*_decrypted.yaml
+decrypted_*
+
+# Vault password files
+.vault_password
+vault_password
+*.vault_pass
+
+# Bitwarden tokens
+.bws_token
+bws_access_token
+*.token
+
+# Backup files
+*.backup
+*.bak
+*~
+
+# OS-specific files
+.DS_Store
+Thumbs.db

@@ -32,6 +32,59 @@ Versions: Latest stable, no deprecated features
 Approach: Infrastructure as Code with version control
 ```
 
+## 📂 Repository Structure
+
+```
+home-lab/
+├── ansible/                          # Ansible automation & playbooks
+│   ├── .vault_password              # Vault password (gitignored)
+│   ├── ansible.cfg                  # Ansible configuration
+│   ├── collections/                 # Ansible collections
+│   ├── group_vars/                  # Group variables
+│   │   ├── *_vault.yml              # Encrypted vault files (gitignored)
+│   │   ├── *.yml                    # Unencrypted variables
+│   │   └── *.template               # Variable templates
+│   ├── inventory/                   # Inventory files
+│   ├── playbooks/                   # Ansible playbooks
+│   ├── roles/                       # Ansible roles
+│   └── templates/                   # Jinja2 templates
+│
+├── scripts/                          # Utility scripts
+│   ├── vault-bws-migration/         # Vault to Bitwarden migration
+│   │   ├── migrate-vault-to-bws.sh  # Main migration script
+│   │   ├── README.md                # Migration documentation
+│   │   ├── .gitignore               # Migration output ignores
+│   │   └── migration-output/        # Migration results (gitignored)
+│   └── yubikey-tools/               # YubiKey utilities
+│
+├── terraform/                        # Terraform infrastructure code
+│   ├── environments/                # Environment-specific configs
+│   ├── modules/                     # Reusable Terraform modules
+│   └── *.tf                         # Terraform files
+│
+├── .github/                          # GitHub Actions workflows
+│   └── workflows/                   # CI/CD pipelines
+│
+├── .claude/                          # Claude Code configuration
+├── .cursor/                          # Cursor IDE configuration
+├── .vscode/                          # VS Code settings
+│
+├── .aider.conf.yml                  # Aider pair programmer config
+├── .editorconfig                    # Editor consistency
+├── .eslintrc.js                     # JavaScript linting
+├── .gitignore                       # Git ignore patterns
+├── .pre-commit-config.yaml          # Pre-commit hooks
+├── .prettierrc                      # Code formatting
+├── .yamllint                        # YAML linting
+│
+├── CLAUDE.md                        # Project context for Claude AI
+├── DEVELOPMENT_PLAN.md              # Development roadmap
+├── GEMINI_RULES.md                  # Guidelines for Gemini
+├── README.md                        # This file
+├── LICENSE                          # License information
+└── Makefile                         # Task automation
+```
+
 ## 📁 File Inventory
 
 ### AI Assistant Configuration
