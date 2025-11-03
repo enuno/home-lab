@@ -1,0 +1,195 @@
+---
+# Nostr Relay Variables
+# Documentation: https://github.com/scsibug/nostr-rs-relay
+
+# ========================================
+# Relay Identity Configuration
+# ========================================
+
+# Relay name displayed to clients
+nostr_relay_name: "nostr-rs-relay"
+
+# Relay description (what your relay is about)
+nostr_relay_description: "A Nostr relay powered by nostr-rs-relay"
+
+# Admin public key (32-byte hex format, leave empty if not configured)
+# Example: "0f3dc2a5e9e5e5b5c5d5e5f5a5b5c5d5e5f5a5b5c5d5e5f5a5b5c5d5e5f5a5b5"
+nostr_relay_pubkey: ""
+
+# Contact information (mailto URI or other contact method)
+# Example: "mailto:admin@example.com"
+nostr_relay_contact: ""
+
+# Relay URL (advertised WebSocket endpoint)
+# Example: "wss://relay.example.com"
+nostr_relay_url: ""
+
+# ========================================
+# Network Configuration
+# ========================================
+
+# Port for WebSocket connections
+# Default: 8080
+nostr_relay_port: 8080
+
+# Bind address
+# Default: 0.0.0.0 (all interfaces)
+nostr_relay_address: "0.0.0.0"
+
+# WebSocket ping interval in seconds (keepalive)
+# Default: 300 (5 minutes)
+nostr_relay_ping_interval: 300
+
+# Remote IP header for proxy environments
+# Example: "x-forwarded-for" or "cf-connecting-ip"
+nostr_relay_remote_ip_header: ""
+
+# ========================================
+# Docker Configuration
+# ========================================
+
+# Docker image repository
+nostr_relay_image: "scsibug/nostr-rs-relay"
+
+# Docker image tag
+# Default: latest
+# Recommended: Pin to specific version for production (e.g., "0.8.9")
+nostr_relay_image_tag: "latest"
+
+# Pull latest image on deployment
+nostr_relay_pull_latest: true
+
+# Auto-restart relay on configuration changes
+nostr_relay_auto_restart: true
+
+# ========================================
+# Database Configuration
+# ========================================
+
+# Database engine: "sqlite" or "postgres"
+nostr_relay_db_engine: "sqlite"
+
+# SQLite data directory (relative to container)
+nostr_relay_db_directory: "/usr/src/app/db"
+
+# Use in-memory database (data will be lost on restart)
+nostr_relay_db_in_memory: false
+
+# PostgreSQL connection string (only used if db_engine is "postgres")
+# Example: "postgresql://user:password@localhost:5432/nostr"
+# Consider using Bitwarden for sensitive connection strings:
+# nostr_relay_db_connection: "{{ lookup('bitwarden.secrets.lookup', 'nostr-db-connection') }}"
+nostr_relay_db_connection: ""
+
+# Database connection pool settings (PostgreSQL only)
+nostr_relay_db_min_conn: 4
+nostr_relay_db_max_conn: 8
+
+# ========================================
+# Rate Limits and Message Restrictions
+# ========================================
+
+# Maximum messages per second per client
+nostr_relay_messages_per_sec: 10
+
+# Maximum subscriptions per minute per client
+nostr_relay_subscriptions_per_min: 20
+
+# Maximum event size in bytes
+# Default: 131072 (128 KB)
+nostr_relay_max_event_bytes: 131072
+
+# Broadcast buffer size (messages buffered for slow clients)
+nostr_relay_broadcast_buffer: 16384
+
+# Reject events with timestamps this many seconds in the future
+# Default: 1800 (30 minutes)
+nostr_relay_reject_future_seconds: 1800
+
+# ========================================
+# Content Filtering
+# ========================================
+
+# Event kind blacklist (list of event kinds to reject)
+# Example: [3, 7] to block contact lists and reactions
+nostr_relay_event_kind_blacklist: []
+
+# Event kind allowlist (if set, only these kinds are allowed)
+# Example: [0, 1, 3] to only allow metadata, text notes, and contacts
+# Leave empty to allow all kinds (except blacklisted)
+nostr_relay_event_kind_allowlist: []
+
+# ========================================
+# Authorization and Authentication
+# ========================================
+
+# Public key whitelist (restrict publishing to specific authors)
+# Example: ["pubkey1", "pubkey2"]
+# Leave empty to allow all authors
+nostr_relay_pubkey_whitelist: []
+
+# Enable NIP-42 authentication
+nostr_relay_nip42_auth: false
+
+# Enable NIP-42 DM restriction (only recipients can read their DMs)
+nostr_relay_nip42_dms: false
+
+# ========================================
+# Verified Users (NIP-05)
+# ========================================
+
+# Verification mode: "disabled", "passive", or "enabled"
+# - disabled: No verification
+# - passive: Verify but don't enforce
+# - enabled: Enforce verification for all users
+nostr_relay_verified_users_mode: "disabled"
+
+# Domain whitelist for NIP-05 verification
+# Example: ["example.com", "trusted.org"]
+nostr_relay_verified_users_domain_whitelist: []
+
+# Domain blacklist for NIP-05 verification
+nostr_relay_verified_users_domain_blacklist: []
+
+# Verification cache expiration in seconds
+# Default: 3600 (1 hour)
+nostr_relay_verify_expiration: 3600
+
+# ========================================
+# Logging Configuration
+# ========================================
+
+# Log level: "trace", "debug", "info", "warn", "error"
+nostr_relay_log_level: "info"
+
+# Log directory (within container)
+nostr_relay_log_folder: "/usr/src/app/logs"
+
+# Log file prefix
+nostr_relay_log_prefix: "nostr-relay"
+
+# Enable tokio tracing for debugging
+nostr_relay_tracing_enabled: false
+
+# ========================================
+# Firewall Configuration
+# ========================================
+
+# Configure UFW firewall automatically
+# Set to false if you manage firewall rules manually
+nostr_relay_configure_firewall: true
+
+# ========================================
+# Advanced Settings
+# ========================================
+
+# Custom config.toml template path (if you want to use your own)
+# Set to true to use a custom template at templates/nostr_relay/custom_config.toml.j2
+nostr_relay_use_custom_config: false
+
+# Additional environment variables for the container
+# Example:
+# nostr_relay_env_vars:
+#   RUST_LOG: "warn,nostr_rs_relay=info"
+#   RUST_BACKTRACE: "1"
+nostr_relay_env_vars: {}

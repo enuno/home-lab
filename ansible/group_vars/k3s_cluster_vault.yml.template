@@ -1,0 +1,2 @@
+# Vault-encrypted secrets for K3s cluster
+k3s_tailscale_auth_key: "tskey-auth-..."
