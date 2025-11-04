@@ -208,9 +208,9 @@ CSV file mapping vault variables to Bitwarden secrets:
 
 ```csv
 "Vault Variable","BWS Secret Name","BWS Secret ID","Source File"
-"vault_pihole_admin_password","prod-pihole-vault-pihole-admin-password","secret-id-1","ansible/group_vars/pihole_vault.yml"
-"vault_tailscale_auth_key","prod-k3s-cluster-vault-tailscale-auth-key","secret-id-2","ansible/group_vars/k3s_cluster_vault.yml"
-"vault_rancher_bootstrap_password","prod-rancher-vault-rancher-bootstrap-password","secret-id-3","ansible/group_vars/rancher_vault.yml"
+"vault_pihole_admin_password","prod_pihole-vault-pihole-admin-password","secret-id-1","ansible/group_vars/pihole_vault.yml"
+"vault_tailscale_auth_key","prod_k3s-cluster-vault-tailscale-auth-key","secret-id-2","ansible/group_vars/k3s_cluster_vault.yml"
+"vault_rancher_bootstrap_password","prod_rancher-vault-rancher-bootstrap-password","secret-id-3","ansible/group_vars/rancher_vault.yml"
 ```
 
 **Use this file to:**
@@ -228,28 +228,38 @@ Only created if errors occur during migration. Contains detailed error informati
 The script generates Bitwarden secret names following this pattern:
 
 ```
-{environment}-{service}-{secret-type}
+{environment}_{service}-{secret-type}
 ```
+
+The environment prefix uses an underscore separator, while the service and variable name parts use hyphens. The environment defaults to `prod` if not specified.
 
 ### Examples
 
 | Vault Variable | Service (from filename) | Generated BWS Name |
 |----------------|-------------------------|-------------------|
-| `vault_pihole_admin_password` | `pihole_vault.yml` → `pihole` | `prod-pihole-vault-pihole-admin-password` |
-| `vault_tailscale_auth_key` | `k3s_cluster_vault.yml` → `k3s-cluster` | `prod-k3s-cluster-vault-tailscale-auth-key` |
-| `vault_rancher_bootstrap_password` | `rancher_vault.yml` → `rancher` | `prod-rancher-vault-rancher-bootstrap-password` |
-| `vault_haproxy_stats_password` | `haproxy_vault.yml` → `haproxy` | `prod-haproxy-vault-haproxy-stats-password` |
+| `vault_pihole_admin_password` | `pihole_vault.yml` → `pihole` | `prod_pihole-vault-pihole-admin-password` |
+| `vault_tailscale_auth_key` | `k3s_cluster_vault.yml` → `k3s-cluster` | `prod_k3s-cluster-vault-tailscale-auth-key` |
+| `vault_rancher_bootstrap_password` | `rancher_vault.yml` → `rancher` | `prod_rancher-vault-rancher-bootstrap-password` |
+| `vault_haproxy_stats_password` | `haproxy_vault.yml` → `haproxy` | `prod_haproxy-vault-haproxy-stats-password` |
 
 **Note:** Variables with `vault_` prefix follow this project's naming convention for select sensitive variables (see [CLAUDE.md](../../CLAUDE.md#ansible-vault-conventions)).
 
 ### Custom Environment
 
-With `--environment staging`:
+With `--environment dev`:
 
 ```
-staging-pihole-admin-password
-staging-k3s-cluster-token
-staging-rancher-bootstrap-password
+dev_pihole-admin-password
+dev_k3s-cluster-token
+dev_rancher-bootstrap-password
+```
+
+With `--environment stage`:
+
+```
+stage_pihole-admin-password
+stage_k3s-cluster-token
+stage_rancher-bootstrap-password
 ```
 
 ## Updating Ansible Playbooks
@@ -267,12 +277,13 @@ vault_pihole_admin_password: "changeme123"
 
 ```yaml
 # group_vars/pihole.yml (unencrypted - references BWS)
-pihole_admin_password: "{{ lookup('bitwarden.secrets.lookup', 'prod-pihole-vault-pihole-admin-password') }}"
+pihole_admin_password: "{{ lookup('bitwarden.secrets.lookup', 'prod_pihole-vault-pihole-admin-password') }}"
 
 # Or reference by secret ID (from mapping file)
 pihole_admin_password: "{{ lookup('bitwarden.secrets.lookup', 'abcd-1234-efgh-5678') }}"
 
-# Note: The BWS secret name includes 'vault-' from the original variable name
+# Note: The BWS secret name uses format {environment}_{service}-{variable-name}
+# Environment defaults to 'prod' if --environment is not specified
 ```
 
 ### Parallel Operation (Recommended During Transition)
@@ -281,7 +292,7 @@ Keep vault fallback during migration:
 
 ```yaml
 # group_vars/pihole.yml
-pihole_admin_password: "{{ lookup('bitwarden.secrets.lookup', 'prod-pihole-vault-pihole-admin-password', default=vault_pihole_admin_password | default('')) }}"
+pihole_admin_password: "{{ lookup('bitwarden.secrets.lookup', 'prod_pihole-vault-pihole-admin-password', default=vault_pihole_admin_password | default('')) }}"
 ```
 
 This allows:
@@ -672,6 +683,11 @@ For issues, questions, or contributions:
 MIT License - See [LICENSE](../../LICENSE) file for details.
 
 ## Version History
+
+### v1.0.1 (2025-11-02)
+- Updated secret naming convention: environment prefix now uses underscore separator
+- Format changed from `{env}-service-name` to `{env}_service-name`
+- Environment defaults to `prod` when not specified via `--environment`
 
 ### v1.0.0 (2025-11-02)
 - Initial release

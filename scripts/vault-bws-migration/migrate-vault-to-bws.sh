@@ -112,12 +112,12 @@ ${BOLD}DESCRIPTION:${NC}
 
 ${BOLD}OPTIONS:${NC}
     --ansible-dir PATH      Path to ansible directory (default: /etc/ansible)
-    --project-id ID         Bitwarden project ID for organizing secrets
+    --project-id ID         Bitwarden Project ID for created secrets ${BOLD}(REQUIRED)${NC}
     --environment ENV       Environment tag (prod/staging/dev)
-    --dry-run              Preview migration without creating secrets
-    --verbose              Enable verbose output
-    -h, --help             Display this help message
-    -v, --version          Display script version
+    --dry-run               Preview migration without creating secrets
+    --verbose               Enable verbose output
+    -h, --help              Display this help message
+    -v, --version           Display script version
 
 ${BOLD}EXAMPLES:${NC}
     # Basic migration with default ansible directory
@@ -137,6 +137,7 @@ ${BOLD}PREREQUISITES:${NC}
     2. bws command installed (>= ${REQUIRED_BWS_VERSION})
     3. .vault_password file in ansible directory OR use --ask-vault-password
     4. BWS_ACCESS_TOKEN environment variable set
+    5. Bitwarden Secrets ${BOLD}Project ID${NC} (pass via --project-id)
 
 ${BOLD}AUTHENTICATION:${NC}
     Set BWS_ACCESS_TOKEN before running:
@@ -450,6 +451,13 @@ check_authentication() {
     fi
 
     success "Bitwarden authentication successful"
+
+    # Ensure Project ID is provided (required by bws CLI)
+    if [[ -z "${PROJECT_ID:-}" ]]; then
+        error "--project-id is required. The Bitwarden Secrets CLI requires a Project ID when creating secrets."
+        error "Provide it via: --project-id <PROJECT_ID>"
+        exit 1
+    fi
 }
 
 #######################################
@@ -614,13 +622,9 @@ generate_secret_name() {
     # Convert variable name underscores to hyphens
     local var_name="${vault_var//_/-}"
 
-    # Construct secret name: {environment}-{service}-{variable-name}
-    local secret_name
-    if [[ -n "$ENVIRONMENT" ]]; then
-        secret_name="${ENVIRONMENT}-${service}-${var_name}"
-    else
-        secret_name="prod-${service}-${var_name}"
-    fi
+    # Construct secret name: {environment}_{service}-{variable-name}
+    local env_prefix="${ENVIRONMENT:-prod}"
+    local secret_name="${env_prefix}_${service}-${var_name}"
 
     echo "$secret_name"
 }
@@ -641,12 +645,13 @@ create_bws_secret() {
         return 0
     fi
 
-    # Build bws command
-    local cmd="bws secret create \"$secret_name\" \"$secret_value\""
-
-    if [[ -n "$project_id" ]]; then
-        cmd="$cmd --project-id \"$project_id\""
+    # Build bws command (PROJECT_ID is a required positional arg for bws)
+    if [[ -z "$project_id" ]]; then
+        error "Project ID is required but missing when creating secret: $secret_name"
+        return 1
     fi
+
+    local cmd="bws secret create \"$secret_name\" \"$secret_value\" \"$project_id\""
 
     # Execute and capture secret ID
     local output
