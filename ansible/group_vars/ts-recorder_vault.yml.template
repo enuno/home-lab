@@ -18,4 +18,4 @@
 # Tailscale authentication key for the SSH recorder
 # Get this from: https://login.tailscale.com/admin/settings/keys
 # Use a reusable key with the tag:session-recorder tag
-tailscale_auth_key: "tskey-auth-xxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+vault_recorder_ts_auth_key: "tskey-auth-xxxxxxxxxxxxx-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"

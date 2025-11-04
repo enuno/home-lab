@@ -4,4 +4,4 @@
 
 # Bootstrap password for Rancher admin user
 # Change this to a strong, unique password before encrypting
-rancher_bootstrap_password: "YourSecurePasswordHere"
+vault_rancher_bootstrap_password: "YourSecurePasswordHere"

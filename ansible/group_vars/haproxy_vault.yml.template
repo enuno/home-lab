@@ -3,9 +3,9 @@
 # Encrypt this file using: ansible-vault encrypt group_vars/haproxy_vault.yml
 
 # HAProxy stats password (change before encrypting)
-haproxy_stats_password: "changeme123"
+vault_haproxy_stats_password: "changeme123"
 
 # keepalived authentication password (max 8 characters)
-keepalived_auth_pass: "SecHA25"
+vault_keepalived_auth_pass: "SecHA25"
 
 # Add additional secrets here

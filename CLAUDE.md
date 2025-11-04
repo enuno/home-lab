@@ -150,6 +150,142 @@ This home lab balances production-grade patterns with practical flexibility:
 - Use blocks for error handling and conditional logic
 - Mask sensitive output: `no_log: true` on secret-handling tasks
 
+### Ansible Vault Conventions
+
+This project follows specific conventions for Ansible Vault encrypted files to maintain clarity and consistency:
+
+**Variable Naming Convention:**
+
+1. **Select Sensitive Variables (Standard Pattern):**
+   - When a vault file contains **select sensitive variables** among other configuration
+   - Prefix sensitive variables with `vault_` for easy identification in playbooks
+   - Example file: `group_vars/pihole_vault.yml`
+   ```yaml
+   # group_vars/pihole_vault.yml (encrypted)
+   vault_pihole_admin_password: "secret123"
+   vault_pihole_api_key: "key456"
+   vault_tailscale_auth_key: "tskey-789"
+   ```
+   - Usage in playbooks clearly indicates these are vault-encrypted secrets:
+   ```yaml
+   - name: Configure Pi-hole admin password
+     ansible.builtin.command:
+       cmd: "pihole -a -p {{ vault_pihole_admin_password }}"
+     no_log: true
+   ```
+
+2. **Entire Config File Encrypted (Exception Pattern):**
+   - When the **entire service configuration** is encrypted as a single file
+   - NO `vault_` prefix needed (the entire file is the secret)
+   - Example: `tor_exit_nodes_vault.yml`, `wireguard_config_vault.yml`
+   ```yaml
+   # group_vars/tor_exit_nodes_vault.yml (entire file encrypted)
+   tor_exit_nodes:
+     - ip: "10.0.1.100"
+       nickname: "ExitNode1"
+       contact: "admin@example.com"
+     - ip: "10.0.1.101"
+       nickname: "ExitNode2"
+       contact: "admin@example.com"
+   ```
+
+**Template File Requirements:**
+
+Every ansible-vault encrypted file MUST have a corresponding `.template` file:
+
+1. **Purpose**: Templates serve as documentation and starting point for new environments
+2. **Location**: Same directory as encrypted file, with `.template` extension
+3. **Content**: Structure with placeholder values, comments explaining each variable
+4. **Not Encrypted**: Templates are committed to git in plain text
+
+**Example Template:**
+```yaml
+# group_vars/pihole_vault.yml.template
+# Copy this file to pihole_vault.yml and encrypt with:
+# ansible-vault encrypt group_vars/pihole_vault.yml
+
+# Pi-hole admin dashboard password
+vault_pihole_admin_password: "changeme"
+
+# Pi-hole API key for external integrations
+vault_pihole_api_key: "your-api-key-here"
+
+# Tailscale authentication key for VPN access
+vault_tailscale_auth_key: "tskey-auth-xxxxx"
+```
+
+**File Management Rules:**
+
+1. **Encrypted Files (.gitignore):**
+   - All `*_vault.yml` files in `group_vars/` and `host_vars/` are gitignored
+   - Pattern: `group_vars/*_vault.yml` and `host_vars/*_vault.yml`
+   - Ensures secrets never committed to repository
+
+2. **Template Files (Committed):**
+   - All `*.template` files ARE committed to git
+   - Provide structure and documentation for team members
+   - Pattern: `group_vars/*_vault.yml.template`
+
+3. **Setup Workflow:**
+   ```bash
+   # Copy template to create new vault file
+   cp group_vars/pihole_vault.yml.template group_vars/pihole_vault.yml
+
+   # Edit with actual secrets
+   vim group_vars/pihole_vault.yml
+
+   # Encrypt the file
+   ansible-vault encrypt group_vars/pihole_vault.yml
+
+   # Verify it's gitignored
+   git status  # Should not show pihole_vault.yml
+   ```
+
+**When Creating New Playbooks:**
+
+1. Determine if secrets needed:
+   - **Yes → Create vault file with template**
+   - **No → Use regular group_vars file**
+
+2. If vault file needed:
+   ```bash
+   # Create template first
+   cat > group_vars/myservice_vault.yml.template << 'EOF'
+   # group_vars/myservice_vault.yml.template
+   vault_myservice_api_key: "api-key-here"
+   vault_myservice_password: "password-here"
+   EOF
+
+   # Copy and customize
+   cp group_vars/myservice_vault.yml.template group_vars/myservice_vault.yml
+
+   # Add actual secrets, then encrypt
+   ansible-vault encrypt group_vars/myservice_vault.yml
+
+   # Commit only the template
+   git add group_vars/myservice_vault.yml.template
+   git commit -m "feat(ansible): add myservice vault template"
+   ```
+
+3. Reference in playbooks using `vault_` prefix:
+   ```yaml
+   vars_files:
+     - group_vars/myservice_vault.yml
+
+   tasks:
+     - name: Use vault secret
+       ansible.builtin.debug:
+         msg: "{{ vault_myservice_api_key }}"
+       no_log: true
+   ```
+
+**Summary:**
+- ✅ Use `vault_` prefix for select sensitive variables
+- ✅ No prefix when entire config file is the secret
+- ✅ Always create `.template` file alongside vault file
+- ✅ Encrypted files in `.gitignore`, templates committed
+- ✅ Document secrets in templates with helpful comments
+
 ### Terraform Module Patterns
 
 **Standard Module Structure:**

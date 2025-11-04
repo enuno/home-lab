@@ -486,10 +486,22 @@ chmod 600 ansible/.vault_password
 1. Use strong vault passwords (16+ characters, mixed case, numbers, symbols)
 2. Store vault password securely (password manager, environment variable)
 3. Use separate vault files for different environments (dev, staging, prod)
-4. Prefix vault variables with `vault_` for easy identification
-5. Reference vault variables in regular group_vars files
-6. Never commit `.vault_password` files to version control
-7. Rotate vault passwords periodically (use `ansible-vault rekey`)
+4. **Prefix vault variables with `vault_`** for easy identification (standard pattern)
+   - Exception: When entire config file is encrypted, no prefix needed
+5. **Create `.template` files** for all vault files (committed to git)
+   - Templates document structure and serve as setup guide
+   - Example: `pihole_vault.yml.template` → `pihole_vault.yml` (encrypted, gitignored)
+6. Reference vault variables in regular group_vars files or playbooks
+7. Never commit `.vault_password` files to version control
+8. Rotate vault passwords periodically (use `ansible-vault rekey`)
+
+**📖 For detailed Ansible Vault conventions, see [CLAUDE.md](CLAUDE.md#ansible-vault-conventions)**
+
+Topics covered:
+- Variable naming patterns (`vault_` prefix vs. entire file encryption)
+- Template file requirements and workflow
+- File management rules (.gitignore patterns)
+- Complete setup examples for new playbooks
 
 ### Pre-commit Security Checks
 

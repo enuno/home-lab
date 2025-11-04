@@ -208,9 +208,9 @@ CSV file mapping vault variables to Bitwarden secrets:
 
 ```csv
 "Vault Variable","BWS Secret Name","BWS Secret ID","Source File"
-"pihole_admin_password","prod-pihole-pihole-admin-password","secret-id-1","ansible/group_vars/pihole_vault.yml"
-"tailscale_auth_key","prod-k3s-cluster-tailscale-auth-key","secret-id-2","ansible/group_vars/k3s_cluster_vault.yml"
-"rancher_bootstrap_password","prod-rancher-rancher-bootstrap-password","secret-id-3","ansible/group_vars/rancher_vault.yml"
+"vault_pihole_admin_password","prod-pihole-vault-pihole-admin-password","secret-id-1","ansible/group_vars/pihole_vault.yml"
+"vault_tailscale_auth_key","prod-k3s-cluster-vault-tailscale-auth-key","secret-id-2","ansible/group_vars/k3s_cluster_vault.yml"
+"vault_rancher_bootstrap_password","prod-rancher-vault-rancher-bootstrap-password","secret-id-3","ansible/group_vars/rancher_vault.yml"
 ```
 
 **Use this file to:**
@@ -235,10 +235,12 @@ The script generates Bitwarden secret names following this pattern:
 
 | Vault Variable | Service (from filename) | Generated BWS Name |
 |----------------|-------------------------|-------------------|
-| `pihole_admin_password` | `pihole_vault.yml` → `pihole` | `prod-pihole-pihole-admin-password` |
-| `tailscale_auth_key` | `k3s_cluster_vault.yml` → `k3s-cluster` | `prod-k3s-cluster-tailscale-auth-key` |
-| `rancher_bootstrap_password` | `rancher_vault.yml` → `rancher` | `prod-rancher-rancher-bootstrap-password` |
-| `haproxy_stats_password` | `haproxy_vault.yml` → `haproxy` | `prod-haproxy-haproxy-stats-password` |
+| `vault_pihole_admin_password` | `pihole_vault.yml` → `pihole` | `prod-pihole-vault-pihole-admin-password` |
+| `vault_tailscale_auth_key` | `k3s_cluster_vault.yml` → `k3s-cluster` | `prod-k3s-cluster-vault-tailscale-auth-key` |
+| `vault_rancher_bootstrap_password` | `rancher_vault.yml` → `rancher` | `prod-rancher-vault-rancher-bootstrap-password` |
+| `vault_haproxy_stats_password` | `haproxy_vault.yml` → `haproxy` | `prod-haproxy-vault-haproxy-stats-password` |
+
+**Note:** Variables with `vault_` prefix follow this project's naming convention for select sensitive variables (see [CLAUDE.md](../../CLAUDE.md#ansible-vault-conventions)).
 
 ### Custom Environment
 
@@ -258,17 +260,19 @@ After migration, update your playbooks to use Bitwarden lookups:
 
 ```yaml
 # group_vars/pihole_vault.yml (encrypted)
-pihole_admin_password: "changeme123"
+vault_pihole_admin_password: "changeme123"
 ```
 
 ### After Migration (Bitwarden Secrets Manager)
 
 ```yaml
 # group_vars/pihole.yml (unencrypted - references BWS)
-pihole_admin_password: "{{ lookup('bitwarden.secrets.lookup', 'prod-pihole-pihole-admin-password') }}"
+pihole_admin_password: "{{ lookup('bitwarden.secrets.lookup', 'prod-pihole-vault-pihole-admin-password') }}"
 
 # Or reference by secret ID (from mapping file)
 pihole_admin_password: "{{ lookup('bitwarden.secrets.lookup', 'abcd-1234-efgh-5678') }}"
+
+# Note: The BWS secret name includes 'vault-' from the original variable name
 ```
 
 ### Parallel Operation (Recommended During Transition)
@@ -277,7 +281,7 @@ Keep vault fallback during migration:
 
 ```yaml
 # group_vars/pihole.yml
-pihole_admin_password: "{{ lookup('bitwarden.secrets.lookup', 'prod-pihole-pihole-admin-password', default=pihole_admin_password_vault | default('')) }}"
+pihole_admin_password: "{{ lookup('bitwarden.secrets.lookup', 'prod-pihole-vault-pihole-admin-password', default=vault_pihole_admin_password | default('')) }}"
 ```
 
 This allows:
@@ -624,10 +628,13 @@ In these directories:
 ### Variables Extracted
 
 All variables from vault files are extracted:
-- ✅ `pihole_admin_password`
-- ✅ `tailscale_auth_key`
-- ✅ `rancher_bootstrap_password`
+- ✅ `vault_pihole_admin_password` (standard pattern with `vault_` prefix)
+- ✅ `vault_tailscale_auth_key` (select sensitive variables)
+- ✅ `vault_rancher_bootstrap_password` (prefixed for easy identification)
+- ✅ Entire config files without prefix (when entire file is the secret)
 - ❌ Commented out variables (YAML parser loads these as None)
+
+**Note:** This project follows the convention of prefixing select sensitive variables with `vault_` for easy identification in playbooks. See [CLAUDE.md - Ansible Vault Conventions](../../CLAUDE.md#ansible-vault-conventions) for details.
 
 ## FAQ
 

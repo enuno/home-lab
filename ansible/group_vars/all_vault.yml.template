@@ -7,6 +7,6 @@
 # Tailscale authentication key
 # Generate new keys at: https://login.tailscale.com/admin/settings/keys
 # Recommended: Use ephemeral keys for testing, reusable keys for production
-node_tailscale_auth_key: "tskey-auth-..."
+vault_node_tailscale_auth_key: "tskey-auth-..."
 
 # Add additional global secrets here as needed
