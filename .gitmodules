@@ -1,3 +1,6 @@
 [submodule "mcp-servers/unifi-mcp-server"]
 	path = mcp-servers/unifi-mcp-server
 	url = https://github.com/enuno/unifi-mcp-server.git
+[submodule "docs/claude"]
+	path = docs/claude
+	url = https://github.com/enuno/claude-command-and-control.git

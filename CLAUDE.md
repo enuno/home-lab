@@ -593,3 +593,4 @@ kubectl exec -it pod-name -n production -- /bin/bash
 ```
 
 This document should guide all AI-assisted development in this home lab project, ensuring consistency, quality, and alignment with project goals.
+Import command and agent standards from docs/claude/
