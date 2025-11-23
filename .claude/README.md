@@ -245,14 +245,158 @@ Custom slash commands automate common infrastructure workflows.
 
 ---
 
+## 🎯 Custom Skills
+
+Custom skills provide specialized domain knowledge and best practices for specific infrastructure patterns. Skills are automatically applied when relevant to your tasks.
+
+### terraform-module-architecture
+
+**Purpose**: Terraform module design patterns and architecture best practices
+**File**: [`skills/terraform-module-architecture/SKILL.md`](skills/terraform-module-architecture/SKILL.md)
+
+**Capabilities**:
+- Module structure and organization (variables, outputs, resources)
+- Input validation and default values
+- Output design for module composition
+- Provider versioning and dependency management
+- Testing patterns (terraform validate, plan, tflint)
+- Documentation generation with terraform-docs
+
+**Auto-Applied When**:
+- Creating Terraform modules
+- Asking about "module architecture"
+- Need "Terraform best practices"
+- Working with module inputs/outputs
+
+**Example**:
+```
+Design a Terraform module for Proxmox VMs with proper variable validation
+and comprehensive outputs.
+```
+
+---
+
+### ansible-bitwarden-integration
+
+**Purpose**: Ansible integration with Bitwarden Secrets Manager
+**File**: [`skills/ansible-bitwarden-integration/SKILL.md`](skills/ansible-bitwarden-integration/SKILL.md)
+
+**Capabilities**:
+- Bitwarden lookup plugin usage patterns
+- Authentication and token management
+- Secret organization (projects, environments)
+- Playbook integration best practices
+- Migration from Ansible Vault patterns
+- Error handling and fallback strategies
+
+**Auto-Applied When**:
+- Using Bitwarden with Ansible
+- Asking about "Bitwarden secrets in Ansible"
+- Migrating from Ansible Vault
+- Need "secret management patterns"
+
+**Example**:
+```
+Update this playbook to use Bitwarden Secrets Manager instead of
+Ansible Vault for database credentials.
+```
+
+---
+
+### bitwarden-secrets-management
+
+**Purpose**: General Bitwarden Secrets Manager usage and organization
+**File**: [`skills/bitwarden-secrets-management/SKILL.md`](skills/bitwarden-secrets-management/SKILL.md)
+
+**Capabilities**:
+- Secret naming conventions
+- Project and environment organization
+- Machine account management
+- Access control and permissions
+- Secret rotation strategies
+- Audit logging and compliance
+
+**Auto-Applied When**:
+- Managing secrets in Bitwarden
+- Asking about "secret organization"
+- Need "Bitwarden best practices"
+- Setting up machine accounts
+
+**Example**:
+```
+Help me organize secrets in Bitwarden for dev, staging, and prod
+environments with proper access controls.
+```
+
+---
+
+### homelab-ha-patterns
+
+**Purpose**: High availability architecture patterns for home lab infrastructure
+**File**: [`skills/homelab-ha-patterns/SKILL.md`](skills/homelab-ha-patterns/SKILL.md)
+
+**Capabilities**:
+- Multi-master Kubernetes (K3s) cluster design
+- etcd clustering and quorum management
+- HAProxy load balancing with Keepalived
+- Database HA with Patroni (PostgreSQL)
+- Distributed storage (Longhorn)
+- Network redundancy and failover
+- Failure scenario recovery procedures
+
+**Auto-Applied When**:
+- Designing "highly available" systems
+- Need "multi-master Kubernetes"
+- Implementing "load balancing and failover"
+- Building "resilient infrastructure"
+- Optimizing for "99.9% uptime"
+
+**Example**:
+```
+Design a highly available K3s cluster with 3 masters and HAProxy
+load balancing, including failover scenarios.
+```
+
+---
+
+### ansible-vault-conventions
+
+**Purpose**: Ansible Vault file naming, encryption, and template conventions
+**File**: [`skills/ansible-vault-conventions/SKILL.md`](skills/ansible-vault-conventions/SKILL.md)
+
+**Capabilities**:
+- Vault file naming patterns (vault_ prefix rules)
+- Template file requirements and structure
+- .gitignore configuration for vault files
+- Encryption/decryption workflows
+- Variable masking with no_log
+- Migration strategies to Bitwarden
+- Security best practices
+
+**Auto-Applied When**:
+- Creating vault files or encrypted secrets
+- Asking about "vault file naming"
+- Need to "encrypt Ansible secrets"
+- Creating "vault templates"
+- Working with `group_vars/*_vault.yml`
+
+**Example**:
+```
+Create a vault file for Pi-hole secrets following our project conventions,
+including template and proper naming.
+```
+
+---
+
 ## 🚀 Quick Start Guide
 
 ### 1. Verify Installation
 
 ```bash
-# Check if agents and commands are in place
+# Check if agents, commands, and skills are in place
 ls -la .claude/agents/
 ls -la .claude/commands/
+ls -la .claude/skills/
 
 # Agents should include:
 # - terraform-architect.md
@@ -264,6 +408,13 @@ ls -la .claude/commands/
 # - ansible-validate.md
 # - vault-migrate.md
 # - infra-deploy.md
+
+# Skills should include directories:
+# - terraform-module-architecture/
+# - ansible-bitwarden-integration/
+# - bitwarden-secrets-management/
+# - homelab-ha-patterns/
+# - ansible-vault-conventions/
 ```
 
 ### 2. Install Required Tools
@@ -574,6 +725,15 @@ When contributing to agents and commands:
 
 ## 📝 Change Log
 
+### Version 1.1.0 (2025-11-22)
+- Added custom skills for specialized domain knowledge:
+  - terraform-module-architecture
+  - ansible-bitwarden-integration
+  - bitwarden-secrets-management
+  - homelab-ha-patterns
+  - ansible-vault-conventions
+- Updated documentation with skills section
+
 ### Version 1.0.0 (2025-11-21)
 - Initial creation of custom agents:
   - terraform-architect
@@ -599,8 +759,8 @@ For questions or issues:
 
 ---
 
-**Version**: 1.0.0
-**Last Updated**: 2025-11-21
+**Version**: 1.1.0
+**Last Updated**: 2025-11-22
 **Maintained By**: Home Lab Infrastructure Team
 **Status**: ✅ Production Ready
 
