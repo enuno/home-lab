@@ -4,3 +4,9 @@
 [submodule "mcp-servers/unifi-mcp-server"]
 	path = mcp-servers/unifi-mcp-server
 	url = https://github.com/enuno/unifi-mcp-server.git
+[submodule "web3-nodes/anon-relay"]
+	path = web3-nodes/anon-relay
+	url = https://github.com/enuno/ansible-anon-relay.git
+[submodule "web3-nodes/handshake-dns"]
+	path = web3-nodes/handshake-dns
+	url = https://github.com/enuno/ansible-handshake-dns.git
