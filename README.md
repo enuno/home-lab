@@ -1,5 +1,7 @@
 # Vibe Coding Standards - Home Lab Infrastructure
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/enuno/home-lab)
+
 This document explains the comprehensive vibe coding files and standards established for your home lab infrastructure development projects.
 
 ## 📋 Table of Contents
